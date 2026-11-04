@@ -24,7 +24,9 @@ services:
       start_period: 20s
 
   auth-service:
-    build: ./auth-service
+    build:
+      context: .
+      dockerfile: auth-service/Dockerfile
     restart: unless-stopped
     depends_on:
       mysql:

@@ -1,17 +1,18 @@
 package com.shiptrack.auth.config;
 
-import java.time.Clock;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
+/** Security, JWT verification, Clock and error handling come from shiptrack-common. */
 @Configuration
-@EnableConfigurationProperties({JwtProperties.class, AdminProperties.class})
+@EnableConfigurationProperties(AdminProperties.class)
 public class AppConfig {
 
-    /** Injected instead of calling Instant.now() so tests can control time (e.g. token expiry). */
     @Bean
-    Clock clock() {
-        return Clock.systemUTC();
+    PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
     }
 }

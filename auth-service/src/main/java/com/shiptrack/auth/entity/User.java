@@ -9,6 +9,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import com.shiptrack.common.security.Role;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import org.hibernate.annotations.JdbcTypeCode;

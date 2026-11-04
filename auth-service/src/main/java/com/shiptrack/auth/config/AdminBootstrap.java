@@ -1,6 +1,6 @@
 package com.shiptrack.auth.config;
 
-import com.shiptrack.auth.entity.Role;
+import com.shiptrack.common.security.Role;
 import com.shiptrack.auth.repository.UserRepository;
 import com.shiptrack.auth.service.UserService;
 import org.slf4j.Logger;

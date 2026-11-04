@@ -1,0 +1,10 @@
+# Build context is the repo root (services need ../common). Keep it small.
+.git
+**/target
+**/node_modules
+.idea
+.vscode
+*.iml
+.env
+docs
+postman

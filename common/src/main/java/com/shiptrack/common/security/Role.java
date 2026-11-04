@@ -1,5 +1,6 @@
-package com.shiptrack.auth.entity;
+package com.shiptrack.common.security;
 
+/** User roles, carried in the JWT "role" claim. */
 public enum Role {
     CUSTOMER,
     DRIVER,

@@ -139,6 +139,30 @@ class AuthApiIntegrationTest {
     }
 
     @Test
+    void adminCanListUsersByRoleInStandardPageShape() throws Exception {
+        String adminToken = login("admin@shiptrack.test", "Admin-pass-123");
+
+        mockMvc.perform(get("/api/v1/users").param("role", "ADMIN").param("size", "5")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].role").value("ADMIN"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(5))
+                .andExpect(jsonPath("$.totalElements", notNullValue()))
+                .andExpect(jsonPath("$.totalPages", notNullValue()));
+
+        mockMvc.perform(get("/api/v1/users").param("size", "500")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void internalPathsAreClosedWithoutKey() throws Exception {
+        mockMvc.perform(get("/internal/anything")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void healthAndSwaggerArePublic() throws Exception {
         mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());
         mockMvc.perform(get("/v3/api-docs"))

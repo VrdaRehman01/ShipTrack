@@ -1,11 +1,14 @@
 package com.shiptrack.auth.service;
 
-import com.shiptrack.auth.entity.Role;
+import com.shiptrack.common.security.Role;
 import com.shiptrack.auth.entity.User;
 import com.shiptrack.auth.exception.EmailAlreadyRegisteredException;
-import com.shiptrack.auth.exception.ResourceNotFoundException;
+import com.shiptrack.common.error.ApiException;
 import com.shiptrack.auth.repository.UserRepository;
 import java.util.Locale;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -44,6 +47,12 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public User getById(Long id) {
-        return userRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("User", id));
+        return userRepository.findById(id).orElseThrow(() -> ApiException.notFound("User", id));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<User> list(Role role, int page, int size) {
+        PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
+        return role == null ? userRepository.findAll(pageable) : userRepository.findByRole(role, pageable);
     }
 }

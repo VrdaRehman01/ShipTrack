@@ -10,7 +10,7 @@ import com.shiptrack.auth.dto.AuthResponse;
 import com.shiptrack.auth.dto.LoginRequest;
 import com.shiptrack.auth.dto.RegisterRequest;
 import com.shiptrack.auth.dto.UserResponse;
-import com.shiptrack.auth.entity.Role;
+import com.shiptrack.common.security.Role;
 import com.shiptrack.auth.entity.User;
 import com.shiptrack.auth.exception.InvalidCredentialsException;
 import com.shiptrack.auth.repository.UserRepository;

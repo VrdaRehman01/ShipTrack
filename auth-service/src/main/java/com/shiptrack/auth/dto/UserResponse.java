@@ -1,6 +1,6 @@
 package com.shiptrack.auth.dto;
 
-import com.shiptrack.auth.entity.Role;
+import com.shiptrack.common.security.Role;
 import com.shiptrack.auth.entity.User;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;

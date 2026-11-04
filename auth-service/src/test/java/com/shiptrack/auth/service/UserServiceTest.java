@@ -7,10 +7,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.shiptrack.auth.entity.Role;
+import com.shiptrack.common.security.Role;
 import com.shiptrack.auth.entity.User;
 import com.shiptrack.auth.exception.EmailAlreadyRegisteredException;
-import com.shiptrack.auth.exception.ResourceNotFoundException;
+import com.shiptrack.common.error.ApiException;
 import com.shiptrack.auth.repository.UserRepository;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -70,6 +70,7 @@ class UserServiceTest {
     void getByIdThrowsNotFound() {
         when(userRepository.findById(99L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> userService.getById(99L)).isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> userService.getById(99L)).isInstanceOf(ApiException.class)
+                .hasMessage("User not found: 99");
     }
 }
