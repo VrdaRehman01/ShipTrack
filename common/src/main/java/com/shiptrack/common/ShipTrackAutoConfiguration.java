@@ -14,6 +14,7 @@ import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 import java.time.Clock;
+import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -34,6 +35,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
@@ -49,6 +51,7 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
 public class ShipTrackAutoConfiguration {
 
     public static final String BEARER_SCHEME = "bearerAuth";
+    public static final String CORS_SOURCE_BEAN = "corsConfigurationSource";
 
     /** Always open on every service. */
     private static final String[] ALWAYS_PUBLIC = {
@@ -109,8 +112,15 @@ public class ShipTrackAutoConfiguration {
             HttpSecurity http,
             JwtVerifier jwtVerifier,
             SecurityProperties securityProperties,
+            BeanFactory beanFactory,
             @Qualifier("handlerExceptionResolver") HandlerExceptionResolver exceptionResolver) throws Exception {
         String[] publicPaths = securityProperties.publicPaths().toArray(String[]::new);
+        // CORS only where a service defines a "corsConfigurationSource" bean (the gateway); browsers never
+        // call services directly. Looked up by name: Spring MVC's introspector is a CorsConfigurationSource too.
+        if (beanFactory.containsBean(CORS_SOURCE_BEAN)) {
+            CorsConfigurationSource cors = beanFactory.getBean(CORS_SOURCE_BEAN, CorsConfigurationSource.class);
+            http.cors(c -> c.configurationSource(cors));
+        }
         return http
                 .csrf(AbstractHttpConfigurer::disable) // stateless JWT API, no cookies
                 .httpBasic(AbstractHttpConfigurer::disable)

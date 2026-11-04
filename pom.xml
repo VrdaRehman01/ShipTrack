@@ -27,7 +27,7 @@
         <module>shipment-service</module>
         <module>billing-service</module>
         <module>tracking-service</module>
-        <!--M:api-gateway-->
+        <module>api-gateway</module>
     </modules>
 
     <properties>
