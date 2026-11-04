@@ -1,5 +1,6 @@
 package com.shiptrack.billing;
 
+import java.time.Duration;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
@@ -12,6 +13,11 @@ class TestcontainersConfiguration {
     @Bean
     @ServiceConnection
     MySQLContainer mysqlContainer() {
-        return new MySQLContainer(DockerImageName.parse("mysql:8.4"));
+        // Timeouts make a stalled readiness probe fail fast and retry, instead of hanging for minutes
+        // on a half-open connection through Docker Desktop's port proxy.
+        return new MySQLContainer(DockerImageName.parse("mysql:8.4"))
+                .withUrlParam("connectTimeout", "5000")
+                .withUrlParam("socketTimeout", "30000")
+                .withStartupTimeout(Duration.ofMinutes(3));
     }
 }

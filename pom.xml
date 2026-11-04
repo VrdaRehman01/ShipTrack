@@ -26,7 +26,7 @@
         <module>auth-service</module>
         <module>shipment-service</module>
         <module>billing-service</module>
-        <!--M:tracking-service-->
+        <module>tracking-service</module>
         <!--M:api-gateway-->
     </modules>
 
