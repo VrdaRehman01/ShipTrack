@@ -25,7 +25,7 @@
         <module>common</module>
         <module>auth-service</module>
         <module>shipment-service</module>
-        <!--M:billing-service-->
+        <module>billing-service</module>
         <!--M:tracking-service-->
         <!--M:api-gateway-->
     </modules>
