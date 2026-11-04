@@ -1,0 +1,17 @@
+# Test-only values; the datasource URL/user/password come from the Testcontainers MySQL.
+micronaut:
+  security:
+    token:
+      jwt:
+        signatures:
+          secret:
+            generator:
+              secret: test-only-secret-at-least-32-characters-long!!
+  http:
+    services:
+      shipment-service:
+        url: http://localhost:1
+datasources:
+  default:
+    username: test
+    password: test

@@ -1,2 +1,116 @@
 # ShipTrack
-Logistics microservices platform: create, track and bill shipments. Built with Spring Boot, Micronaut, MySQL, Docker and AWS.
+
+A logistics backend: customers create shipments, drivers move them through delivery and post live locations,
+and the system bills each delivered shipment automatically.
+It's built as Java 21 microservices (Spring Boot 4 + Micronaut 4) behind one API gateway.
+
+```
+Client ──► API Gateway :8080 ──┬─► auth-service      :8081 ─► auth_db      users, roles, JWT
+ (JWT check at the edge,       ├─► shipment-service  :8082 ─► shipment_db  lifecycle, drivers, history
+  correlation ID, CORS,        │        │ on DELIVERED (async, circuit breaker, retried)
+  one Swagger UI)              │        ▼
+                               ├─► billing-service   :8083 ─► billing_db   invoices, pricing
+                               └─► tracking-service  :8084 ─► tracking_db  driver locations (Micronaut)
+```
+
+## Setup in 5 steps
+
+You need **Docker Desktop**. To run services from your IDE you also need **JDK 21+** (Maven comes with `./mvnw`).
+
+1. **Clone the repo**
+   ```bash
+   git clone https://github.com/VrdaRehman01/ShipTrack.git && cd ShipTrack
+   ```
+2. **Create `.env`.** Copy the example, then change every password and secret:
+   ```bash
+   cp .env.example .env
+   ```
+3. **Start everything** (the first build takes a few minutes)
+   ```bash
+   docker compose up -d --build --wait
+   ```
+4. **Open Swagger** at http://localhost:8080/swagger-ui.html. Use the dropdown in the top right to switch services.
+5. **Run the full flow.** Import `postman/ShipTrack.postman_collection.json` into Postman and run it top to bottom,
+   or use Newman:
+   ```bash
+   docker run --rm --network host -v "$PWD/postman:/etc/newman" postman/newman:6-alpine \
+     run ShipTrack.postman_collection.json --env-var adminPassword=<ADMIN_PASSWORD from .env>
+   ```
+
+To stop everything, run `docker compose down`. Add `-v` to also delete the database.
+
+## What it does
+
+| Requirement | How |
+|---|---|
+| FR-1/2 Register, login, JWT | BCrypt passwords; HS256 JWT, 15-minute expiry; every service verifies the token itself |
+| FR-3 Roles | CUSTOMER, DRIVER, ADMIN. Public sign-up creates customers only; admins create drivers; the first admin comes from `.env` |
+| FR-4 Shipments | Create, list (paginated, newest first), view; tracking codes like `ST-2026-000042` |
+| FR-5 Lifecycle | `CREATED → PICKED_UP → IN_TRANSIT → DELIVERED`, no skipping (400 `INVALID_STATUS_TRANSITION`). Customers may cancel before pickup |
+| FR-6 Privacy | Owner, assigned driver or admin only; anyone else gets 403. Applies to shipments, locations and invoices |
+| FR-7 Invoices | Created automatically on delivery. Billing being down never fails a delivery (circuit breaker + retry job) |
+| FR-8 Tracking | Assigned driver posts locations while the parcel is moving; owner and admin read the latest location or the route |
+| FR-9 Gateway | All traffic goes through `:8080`; `/internal/**` is never exposed |
+| FR-10 Idempotency | `Idempotency-Key` header: retrying the same request returns the first shipment; reusing a key for a different body gives 422 |
+| Extras | Status history timeline, public tracking page with no personal data, optimistic locking (409 on concurrent edits), admin user list |
+
+## API (through the gateway)
+
+| Method | Path | Who | Purpose |
+|---|---|---|---|
+| POST | `/api/v1/auth/register` | Public | Create a customer account |
+| POST | `/api/v1/auth/login` | Public | Get a JWT |
+| GET | `/api/v1/users/me` | Anyone logged in | Who am I |
+| GET/POST | `/api/v1/users` | Admin | List users (`?role=DRIVER`), create drivers and admins |
+| POST | `/api/v1/shipments` | Customer | Create (send `Idempotency-Key`) |
+| GET | `/api/v1/shipments` | Anyone logged in | Customers: own; drivers: assigned; admins: all. `?status=&page=&size=` |
+| GET | `/api/v1/shipments/{id}` | Owner, driver, admin | Details |
+| GET | `/api/v1/shipments/{id}/history` | Owner, driver, admin | Status timeline |
+| PATCH | `/api/v1/shipments/{id}/status` | Driver, admin (customer: cancel) | Next status |
+| PATCH | `/api/v1/shipments/{id}/driver` | Admin | Assign driver |
+| GET | `/api/v1/public/shipments/{trackingCode}` | Public | Status and timeline only |
+| POST | `/api/v1/tracking/{shipmentId}/locations` | Assigned driver | Post location |
+| GET | `/api/v1/tracking/{shipmentId}/latest` | Owner, driver, admin | Latest location |
+| GET | `/api/v1/tracking/{shipmentId}/locations` | Owner, driver, admin | Route, newest first |
+| GET | `/api/v1/invoices?shipmentId=` | Owner, admin | Invoice for a shipment |
+| GET | `/api/v1/invoices` | Customer (own), admin | List invoices |
+| POST | `/api/v1/invoices/{id}/payments` | Admin | Mark paid |
+
+Every error has the same shape and carries the request's correlation ID:
+```json
+{ "timestamp": "2026-11-04T09:30:00Z", "status": 400, "error": "INVALID_STATUS_TRANSITION",
+  "message": "Cannot move shipment from CREATED to DELIVERED (next allowed: CANCELLED, PICKED_UP)",
+  "path": "/api/v1/shipments/42/status", "correlationId": "a1b2c3d4" }
+```
+
+## Development
+
+```bash
+./mvnw verify                          # all modules: unit + Testcontainers tests, Checkstyle, 70% coverage gate
+./mvnw verify -pl shipment-service -am # one service (plus the common module it needs)
+docker compose up -d mysql             # just the database, then run a service from the IDE
+```
+The Spring services read the repo-root `.env` automatically. To run tracking-service from the IDE, export the
+`.env` variables first.
+
+Coverage reports are written to `<module>/target/site/jacoco/index.html`.
+CI (`.github/workflows/ci.yml`) runs the same build, then starts the whole stack and runs the Postman flow on every push and PR.
+
+## Repo layout
+```
+├── common/            # shared: error shape, JWT verification, correlation IDs, paging, Swagger (auto-configured)
+├── auth-service/      # Spring Boot 4
+├── shipment-service/  # Spring Boot 4 + Resilience4j
+├── billing-service/   # Spring Boot 4
+├── tracking-service/  # Micronaut 4
+├── api-gateway/       # Spring Cloud Gateway (WebMVC)
+├── config/            # Checkstyle rules
+├── docker/mysql/init/ # creates one database per service
+├── docs/adr/          # Architecture Decision Records
+├── postman/           # end-to-end collection (generated by build_collection.py)
+└── docker-compose.yml
+```
+
+## Docs
+- Architecture decisions: [docs/adr](docs/adr)
+- Something broke? See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)

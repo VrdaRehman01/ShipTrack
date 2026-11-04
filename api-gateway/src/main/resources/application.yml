@@ -1,0 +1,103 @@
+server:
+  port: ${GATEWAY_PORT:8080}
+
+spring:
+  application:
+    name: api-gateway
+  threads:
+    virtual:
+      enabled: true
+  config:
+    # Run from the IDE with the repo-root .env (git-ignored). Missing file is fine.
+    import: optional:file:.env[.properties],optional:file:../.env[.properties]
+  cloud:
+    # Spring Cloud 2025.1 is certified for Boot 4.0; we run Boot 4.1 (see ADR 0006).
+    compatibility-verifier:
+      enabled: false
+    gateway:
+      server:
+        webmvc:
+          routes:
+            # --- APIs (FR-9: every client request goes through here) ---
+            - id: auth
+              uri: ${AUTH_SERVICE_URL:http://localhost:8081}
+              predicates:
+                - Path=/api/v1/auth/**,/api/v1/users/**
+            - id: shipments
+              uri: ${SHIPMENT_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/v1/shipments/**,/api/v1/public/shipments/**
+            - id: invoices
+              uri: ${BILLING_SERVICE_URL:http://localhost:8083}
+              predicates:
+                - Path=/api/v1/invoices/**
+            - id: tracking
+              uri: ${TRACKING_SERVICE_URL:http://localhost:8084}
+              predicates:
+                - Path=/api/v1/tracking/**
+            # --- Each service's OpenAPI spec, for the single Swagger UI below ---
+            - id: auth-docs
+              uri: ${AUTH_SERVICE_URL:http://localhost:8081}
+              predicates:
+                - Path=/docs/auth
+              filters:
+                - SetPath=/v3/api-docs
+            - id: shipment-docs
+              uri: ${SHIPMENT_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/docs/shipments
+              filters:
+                - SetPath=/v3/api-docs
+            - id: billing-docs
+              uri: ${BILLING_SERVICE_URL:http://localhost:8083}
+              predicates:
+                - Path=/docs/invoices
+              filters:
+                - SetPath=/v3/api-docs
+            - id: tracking-docs
+              uri: ${TRACKING_SERVICE_URL:http://localhost:8084}
+              predicates:
+                - Path=/docs/tracking
+              filters:
+                - SetPath=/swagger/tracking-service-v1.yml
+
+shiptrack:
+  jwt:
+    secret: ${JWT_SECRET}
+    issuer: shiptrack-auth
+  security:
+    # Everything else needs a valid JWT before it reaches a service. Services check again (defence in depth).
+    public-paths:
+      - /api/v1/auth/register
+      - /api/v1/auth/login
+      - /api/v1/public/**
+      - /docs/**
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+# One Swagger UI for the whole system: http://localhost:8080/swagger-ui.html
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    urls-primary-name: shipments
+    urls:
+      - name: auth
+        url: /docs/auth
+      - name: shipments
+        url: /docs/shipments
+      - name: invoices
+        url: /docs/invoices
+      - name: tracking
+        url: /docs/tracking

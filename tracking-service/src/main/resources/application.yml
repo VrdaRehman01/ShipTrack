@@ -1,0 +1,60 @@
+micronaut:
+  application:
+    name: tracking-service
+  server:
+    port: ${TRACKING_SERVICE_PORT:8084}
+  serde:
+    write-dates-as-timestamps: false
+  http:
+    services:
+      shipment-service:
+        url: ${SHIPMENT_SERVICE_URL:`http://localhost:8082`}
+        connect-timeout: 2s
+        read-timeout: 3s
+  router:
+    static-resources:
+      swagger:
+        paths: classpath:META-INF/swagger
+        mapping: /swagger/**
+      swagger-ui:
+        paths: classpath:META-INF/swagger/views/swagger-ui
+        mapping: /swagger-ui/**
+  security:
+    # Same JWTs as every other service: HS256, shared JWT_SECRET, issued by auth-service.
+    token:
+      roles-name: role
+      jwt:
+        signatures:
+          secret:
+            generator:
+              secret: ${JWT_SECRET}
+              jws-algorithm: HS256
+        claims-validators:
+          issuer: shiptrack-auth
+    intercept-url-map:
+      - pattern: /health/**
+        access: isAnonymous()
+      - pattern: /swagger/**
+        access: isAnonymous()
+      - pattern: /swagger-ui/**
+        access: isAnonymous()
+    reject-not-found: false
+
+datasources:
+  default:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${TRACKING_DB_NAME:tracking_db}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    dialect: MYSQL
+
+flyway:
+  datasources:
+    default:
+      enabled: true
+
+endpoints:
+  health:
+    enabled: true
+    sensitive: false
+    details-visible: ANONYMOUS

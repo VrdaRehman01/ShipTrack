@@ -1,4 +1,18 @@
+# Secrets
+.env
+*.env.local
+
+# Build output
 target/
+build/
+*.log
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
 pom.xml.tag
 pom.xml.releaseBackup
 pom.xml.versionsBackup
