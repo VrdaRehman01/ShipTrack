@@ -8,6 +8,7 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.core.MethodParameter;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
@@ -19,7 +20,11 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.validation.method.ParameterErrors;
+import org.springframework.validation.method.ParameterValidationResult;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
@@ -54,9 +59,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(HandlerMethodValidationException.class)
     public ResponseEntity<ApiError> handleMethodValidation(HandlerMethodValidationException ex, HttpServletRequest request) {
+        // A @Valid body inside method validation arrives as ParameterErrors: report its fields, not "request".
         String message = ex.getParameterValidationResults().stream()
-                .flatMap(r -> r.getResolvableErrors().stream()
-                        .map(e -> r.getMethodParameter().getParameterName() + ": " + e.getDefaultMessage()))
+                .flatMap(r -> r instanceof ParameterErrors errors
+                        ? errors.getFieldErrors().stream().map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
+                        : r.getResolvableErrors().stream()
+                                .map(e -> parameterName(r) + ": " + e.getDefaultMessage()))
                 .sorted()
                 .collect(Collectors.joining("; "));
         return build(CommonErrorCode.VALIDATION_FAILED, message, request);
@@ -127,6 +135,20 @@ public class GlobalExceptionHandler {
         // Never leak internals (stack traces, SQL) to the client.
         return build(CommonErrorCode.INTERNAL_ERROR,
                 "Something went wrong. Quote the correlationId when reporting it.", request);
+    }
+
+    /** Prefer the HTTP-facing name (header/query param) over the Java parameter name. */
+    private static String parameterName(ParameterValidationResult result) {
+        MethodParameter parameter = result.getMethodParameter();
+        RequestHeader header = parameter.getParameterAnnotation(RequestHeader.class);
+        if (header != null && !header.name().isEmpty()) {
+            return header.name();
+        }
+        RequestParam param = parameter.getParameterAnnotation(RequestParam.class);
+        if (param != null && !param.name().isEmpty()) {
+            return param.name();
+        }
+        return parameter.getParameterName();
     }
 
     private ResponseEntity<ApiError> build(ErrorCode code, String message, HttpServletRequest request) {
