@@ -6,9 +6,11 @@ import com.shiptrack.shipment.entity.ShipmentStatus;
 import com.shiptrack.shipment.repository.ShipmentRepository;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import java.time.Duration;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -36,19 +38,41 @@ public class InvoiceRequester {
     private final BillingClient billingClient;
     private final CircuitBreaker circuitBreaker;
     private final TransactionTemplate tx;
+    private final int immediateAttempts;
+    private final Duration immediateBackoff;
 
     public InvoiceRequester(ShipmentRepository shipments, BillingClient billingClient,
-                            CircuitBreaker billingCircuitBreaker, TransactionTemplate tx) {
+                            CircuitBreaker billingCircuitBreaker, TransactionTemplate tx,
+                            @Value("${shiptrack.billing.immediate-attempts:3}") int immediateAttempts,
+                            @Value("${shiptrack.billing.immediate-backoff:1s}") Duration immediateBackoff) {
         this.shipments = shipments;
         this.billingClient = billingClient;
         this.circuitBreaker = billingCircuitBreaker;
         this.tx = tx;
+        this.immediateAttempts = Math.max(1, immediateAttempts);
+        this.immediateBackoff = immediateBackoff;
     }
 
+    /**
+     * Right after delivery: a few quick attempts with growing backoff, so a blip (cold start, slow first call)
+     * still gives the customer an invoice within seconds. Anything longer is left to the retry job.
+     */
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onDelivered(ShipmentDeliveredEvent event) {
-        requestInvoice(event.shipmentId());
+        for (int attempt = 1; attempt <= immediateAttempts; attempt++) {
+            if (requestInvoice(event.shipmentId())
+                    || circuitBreaker.getState() == CircuitBreaker.State.OPEN
+                    || attempt == immediateAttempts) {
+                return;
+            }
+            try {
+                Thread.sleep(immediateBackoff.multipliedBy(attempt));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
     }
 
     @Scheduled(fixedDelayString = "${shiptrack.billing.retry-interval:60s}",

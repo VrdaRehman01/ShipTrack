@@ -6,7 +6,7 @@ FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /src
 COPY . .
 # The cache mount keeps ~/.m2 between builds, so dependencies download only once.
-RUN --mount=type=cache,target=/root/.m2 \
+RUN --mount=type=cache,target=/root/.m2,sharing=locked \
     mvn -B -q -pl billing-service -am package -DskipTests -Djacoco.skip -Dcheckstyle.skip
 
 # ---- Run stage: slim JRE 21, non-root user ----

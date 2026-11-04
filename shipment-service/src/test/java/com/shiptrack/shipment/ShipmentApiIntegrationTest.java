@@ -137,7 +137,8 @@ class ShipmentApiIntegrationTest {
         patchStatus(driver, id, "IN_TRANSIT").andExpect(status().isOk());
         patchStatus(driver, id, "DELIVERED").andExpect(status().isOk()).andExpect(jsonPath("$.status").value("DELIVERED"));
 
-        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> verify(billingClient, times(1)).createInvoice(any()));
+        // 3 quick attempts right after delivery, then it's left to the retry job.
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> verify(billingClient, times(3)).createInvoice(any()));
         assertThat(shipments.findById(id).orElseThrow().isInvoiced()).isFalse();
 
         // Billing comes back; the retry job picks it up.

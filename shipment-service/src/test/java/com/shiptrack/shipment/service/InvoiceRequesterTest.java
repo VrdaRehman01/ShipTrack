@@ -50,7 +50,7 @@ class InvoiceRequesterTest {
                 .waitDurationInOpenState(Duration.ofMinutes(5))
                 .recordExceptions(ResourceAccessException.class)
                 .build());
-        requester = new InvoiceRequester(shipments, billingClient, breaker, tx);
+        requester = new InvoiceRequester(shipments, billingClient, breaker, tx, 3, Duration.ofMillis(10));
         lenient().doAnswer(inv -> {
             inv.<Consumer<TransactionStatus>>getArgument(0).accept(null);
             return null;
@@ -112,6 +112,28 @@ class InvoiceRequesterTest {
         assertThat(requester.requestInvoice(5L)).isTrue();
         assertThat(requester.requestInvoice(6L)).isTrue();
         verify(billingClient, never()).createInvoice(any());
+    }
+
+    @Test
+    void deliveredEventRetriesQuicklyThroughABlip() {
+        stubDelivered(1L);
+        doThrow(new ResourceAccessException("cold start")).doNothing().when(billingClient).createInvoice(any());
+
+        requester.onDelivered(new ShipmentDeliveredEvent(1L));
+
+        verify(billingClient, times(2)).createInvoice(any());
+        verify(shipments).markInvoiced(1L);
+    }
+
+    @Test
+    void deliveredEventGivesUpAfterImmediateAttempts() {
+        stubDelivered(1L);
+        doThrow(new ResourceAccessException("down")).when(billingClient).createInvoice(any());
+
+        requester.onDelivered(new ShipmentDeliveredEvent(1L));
+
+        verify(billingClient, times(3)).createInvoice(any());
+        verify(shipments, never()).markInvoiced(any());
     }
 
     @Test
