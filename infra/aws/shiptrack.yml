@@ -1,0 +1,259 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  ShipTrack demo environment (ADR 0007): one EC2 instance running the Docker Compose stack, images in ECR,
+  secrets in Secrets Manager, logs in CloudWatch, a monthly budget alarm, and a GitHub OIDC role for deploys.
+  Costs about USD 0.06/hour while the instance runs and about USD 2/month while stopped (disk + secret).
+
+Parameters:
+  AlertEmail:
+    Type: String
+    Description: Email that receives the budget alarm (confirm the subscription email AWS sends).
+    AllowedPattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 5
+    Description: Alert when actual or forecast monthly spend passes this amount.
+  GitHubRepo:
+    Type: String
+    Default: VrdaRehman01/ShipTrack
+    Description: owner/repo allowed to deploy (main branch only).
+  CreateGitHubOidcProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Set to false if this AWS account already has the token.actions.githubusercontent.com OIDC provider.
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues: [t3.medium, t3.large]
+    Description: 4 GB RAM is the minimum for 5 JVM services + MySQL.
+  AllowedHttpCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: Who can reach the API on port 80. Narrow it to your own IP (x.x.x.x/32) if you like.
+  AdminEmail:
+    Type: String
+    Default: admin@shiptrack.demo
+    Description: Login for the first ADMIN account (its password is generated into Secrets Manager).
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Conditions:
+  CreateOidc: !Equals [!Ref CreateGitHubOidcProvider, "true"]
+
+Resources:
+  # ------------------------------------------------------------------ images
+  AuthRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: shiptrack/auth-service
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EmptyOnDelete: true
+      LifecyclePolicy: { LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep last 5","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}' }
+  ShipmentRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: shiptrack/shipment-service
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EmptyOnDelete: true
+      LifecyclePolicy: { LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep last 5","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}' }
+  BillingRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: shiptrack/billing-service
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EmptyOnDelete: true
+      LifecyclePolicy: { LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep last 5","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}' }
+  TrackingRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: shiptrack/tracking-service
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EmptyOnDelete: true
+      LifecyclePolicy: { LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep last 5","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}' }
+  GatewayRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: shiptrack/api-gateway
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EmptyOnDelete: true
+      LifecyclePolicy: { LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep last 5","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}' }
+
+  # ------------------------------------------------------------------ secrets (one secret = USD 0.40/month)
+  # AWS generates the JWT secret; the first deploy adds the DB, internal-key and admin passwords
+  # (random, generated on the instance) to this same secret. Nothing secret is ever in Git.
+  AppSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: shiptrack/prod
+      Description: ShipTrack production secrets (JSON). Read the admin password with the command in docs/DEPLOYMENT.md.
+      GenerateSecretString:
+        SecretStringTemplate: '{}'
+        GenerateStringKey: jwtSecret
+        PasswordLength: 64
+        ExcludePunctuation: true
+
+  # ------------------------------------------------------------------ logs
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /shiptrack/prod
+      RetentionInDays: 7
+
+  # ------------------------------------------------------------------ the instance
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore   # shell + deploys via SSM, no SSH port
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Policies:
+        - PolicyName: shiptrack-runtime
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [secretsmanager:GetSecretValue, secretsmanager:PutSecretValue]
+                Resource: !Ref AppSecret
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents, logs:DescribeLogStreams]
+                Resource: !Sub "${LogGroup.Arn}:*"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ShipTrack API gateway on port 80 only (no SSH; use SSM Session Manager)
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AllowedHttpCidr
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds: [!GetAtt SecurityGroup.GroupId]
+      MetadataOptions: { HttpTokens: required, HttpEndpoint: enabled }
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: { VolumeSize: 16, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true }
+      Tags:
+        - { Key: Name, Value: shiptrack-prod }
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y docker jq
+          systemctl enable --now docker
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -fsSL "https://github.com/docker/compose/releases/download/v2.39.4/docker-compose-linux-x86_64" \
+            -o /usr/local/lib/docker/cli-plugins/docker-compose
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+          mkdir -p /opt/shiptrack
+          # Values the deploy script needs; secrets themselves stay in Secrets Manager.
+          cat > /opt/shiptrack/stack.env <<EOF
+          AWS_REGION=${AWS::Region}
+          ECR_REGISTRY=${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
+          LOG_GROUP=${LogGroup}
+          ADMIN_EMAIL=${AdminEmail}
+          EOF
+
+  # ------------------------------------------------------------------ cost guardrail (doc: alarm at $5 on day one)
+  Budget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: shiptrack-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: { Amount: !Ref MonthlyBudgetUsd, Unit: USD }
+      NotificationsWithSubscribers:
+        - Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 80, ThresholdType: PERCENTAGE }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
+        - Notification: { NotificationType: FORECASTED, ComparisonOperator: GREATER_THAN, Threshold: 100, ThresholdType: PERCENTAGE }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
+
+  # ------------------------------------------------------------------ GitHub Actions deploys (OIDC: no AWS keys in GitHub)
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidc
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: shiptrack-github-deploy
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepo}:ref:refs/heads/main"
+      Policies:
+        - PolicyName: shiptrack-deploy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                Resource:
+                  - !GetAtt AuthRepo.Arn
+                  - !GetAtt ShipmentRepo.Arn
+                  - !GetAtt BillingRepo.Arn
+                  - !GetAtt TrackingRepo.Arn
+                  - !GetAtt GatewayRepo.Arn
+              - Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${Instance}"
+                  - !Sub "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
+              - Effect: Allow
+                Action: [ssm:GetCommandInvocation, ssm:ListCommandInvocations, ec2:DescribeInstances]
+                Resource: "*"
+
+Outputs:
+  InstanceId:
+    Description: Set as GitHub repo variable AWS_INSTANCE_ID.
+    Value: !Ref Instance
+  DeployRoleArn:
+    Description: Set as GitHub repo variable AWS_DEPLOY_ROLE_ARN.
+    Value: !GetAtt DeployRole.Arn
+  Region:
+    Description: Set as GitHub repo variable AWS_REGION.
+    Value: !Ref AWS::Region
+  ApiUrl:
+    Description: Public URL (changes after stop/start; see docs/DEPLOYMENT.md).
+    Value: !Sub "http://${Instance.PublicDnsName}"
+  SwaggerUrl:
+    Value: !Sub "http://${Instance.PublicDnsName}/swagger-ui.html"

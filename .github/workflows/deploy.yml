@@ -1,0 +1,123 @@
+name: Deploy
+
+# Only main deploys: after CI passes on main (or by hand), build the images, push them to ECR and roll the
+# EC2 stack over via SSM. Authenticates with GitHub OIDC; there are no AWS keys stored in GitHub.
+# Skips itself until the repo variables from docs/DEPLOYMENT.md are set, so it is safe before AWS exists.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+env:
+  SERVICES: auth-service shipment-service billing-service tracking-service api-gateway
+
+jobs:
+  deploy:
+    if: >-
+      vars.AWS_DEPLOY_ROLE_ARN != '' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: production
+      url: ${{ steps.smoke.outputs.url }}
+    env:
+      IMAGE_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.IMAGE_TAG }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push images (tag = commit SHA)
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          for svc in $SERVICES; do
+            docker buildx build -f "$svc/Dockerfile" \
+              --cache-from "type=gha,scope=$svc" --cache-to "type=gha,mode=max,scope=$svc" \
+              -t "$REGISTRY/shiptrack/$svc:$IMAGE_TAG" --push .
+          done
+
+      - name: Make sure the instance is running
+        run: |
+          state=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
+            --query 'Reservations[0].Instances[0].State.Name' --output text)
+          if [ "$state" != "running" ]; then
+            echo "::error::Instance $INSTANCE_ID is $state. Start it (see docs/DEPLOYMENT.md) and re-run this workflow."
+            exit 1
+          fi
+
+      - name: Deploy on the instance via SSM
+        run: |
+          b64() { base64 -w0 "$1"; }
+          cat > params.json <<EOF
+          {
+            "commands": [
+              "set -euo pipefail",
+              "mkdir -p /opt/shiptrack/mysql-init",
+              "echo $(b64 infra/aws/docker-compose.prod.yml) | base64 -d > /opt/shiptrack/docker-compose.prod.yml",
+              "echo $(b64 scripts/deploy-on-host.sh) | base64 -d > /opt/shiptrack/deploy-on-host.sh",
+              "echo $(b64 docker/mysql/init/01-create-databases.sh) | base64 -d > /opt/shiptrack/mysql-init/01-create-databases.sh",
+              "bash /opt/shiptrack/deploy-on-host.sh $IMAGE_TAG"
+            ],
+            "executionTimeout": ["1200"]
+          }
+          EOF
+          command_id=$(aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
+            --comment "ShipTrack deploy $IMAGE_TAG" --parameters file://params.json \
+            --cloud-watch-output-config "CloudWatchOutputEnabled=true,CloudWatchLogGroupName=/shiptrack/prod" \
+            --query Command.CommandId --output text)
+          echo "SSM command: $command_id"
+          for i in $(seq 1 120); do
+            status=$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" \
+              --query Status --output text 2>/dev/null || echo Pending)
+            case "$status" in
+              Success) break ;;
+              Failed|Cancelled|TimedOut)
+                aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" \
+                  --query '[StandardOutputContent,StandardErrorContent]' --output text
+                exit 1 ;;
+            esac
+            sleep 10
+          done
+          aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" \
+            --query StandardOutputContent --output text
+
+      - id: smoke
+        name: Smoke test through the public gateway
+        run: |
+          host=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
+            --query 'Reservations[0].Instances[0].PublicDnsName' --output text)
+          echo "url=http://$host/swagger-ui.html" >> "$GITHUB_OUTPUT"
+          for i in $(seq 1 30); do
+            if curl -fsS "http://$host/actuator/health" | grep -q UP; then
+              curl -fsS -o /dev/null -w "public tracking (expect 404): %{http_code}\n" \
+                "http://$host/api/v1/public/shipments/ST-2000-000000" || true
+              echo "### Deployed \`$IMAGE_TAG\` → http://$host/swagger-ui.html" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Gateway health check failed"; exit 1

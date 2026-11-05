@@ -47,6 +47,7 @@ datasources:
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
     dialect: MYSQL
+    maximum-pool-size: ${DB_POOL_SIZE:20}
 
 flyway:
   datasources:
