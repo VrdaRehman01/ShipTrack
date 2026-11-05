@@ -35,7 +35,9 @@ services:
     healthcheck:
       # TCP on purpose: on first boot MySQL runs a temporary socket-only server while it creates the
       # databases, and a socket ping would report "healthy" too early.
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --protocol=TCP -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      # mysqladmin ping exits 0 as soon as the server answers, even with no/denied credentials, so no password
+      # is needed here and quoting can't break it.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--protocol=TCP", "--silent"]
       interval: 5s
       timeout: 5s
       retries: 20

@@ -45,7 +45,9 @@ services:
       driver: awslogs
       options: { awslogs-region: "${AWS_REGION}", awslogs-group: "${LOG_GROUP}", tag: "mysql" }
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --protocol=TCP -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      # mysqladmin ping exits 0 as soon as the server answers, even with no/denied credentials, so no password
+      # is needed here and quoting can't break it.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--protocol=TCP", "--silent"]
       interval: 5s
       timeout: 5s
       retries: 30
