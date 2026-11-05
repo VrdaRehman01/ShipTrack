@@ -96,6 +96,23 @@ The Spring services read the repo-root `.env` automatically. To run tracking-ser
 Coverage reports are written to `<module>/target/site/jacoco/index.html`.
 CI (`.github/workflows/ci.yml`) runs the same build, then starts the whole stack and runs the Postman flow on every push and PR.
 
+## Performance
+
+The success metric is **p95 < 300 ms with 100 concurrent users** (local). Measured with `k6/load-test.js`:
+**p95 = 157 ms, 0 errors in 25,132 requests, about 260 requests/s.** Each of the 100 users creates, lists, reads and publicly
+tracks shipments through the gateway.
+```bash
+docker run --rm -i --network shiptrack_default -v "$PWD/k6:/scripts" grafana/k6:1.3.0   run /scripts/load-test.js -e BASE_URL=http://api-gateway:8080
+```
+Run k6 inside the Compose network (as above). Going through `localhost` on Windows/macOS adds Docker Desktop's
+port proxy, which becomes the bottleneck and gives misleading numbers.
+
+## Deploying to AWS
+
+One EC2 instance with the same Compose stack. Images go to ECR, secrets to Secrets Manager, logs to CloudWatch, and a
+$5 budget alarm is included. Every merge to `main` deploys automatically. One-time setup (about 15 minutes, browser only):
+**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
 ## Repo layout
 ```
 ├── common/            # shared: error shape, JWT verification, correlation IDs, paging, Swagger (auto-configured)
