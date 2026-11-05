@@ -39,7 +39,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-      start_period: 20s
+      start_period: 180s
+      start_interval: 2s
 
   auth-service:
     build:

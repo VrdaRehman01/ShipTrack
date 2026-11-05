@@ -17,7 +17,7 @@ COPY --from=build /src/shipment-service/target/shipment-service-*.jar app.jar
 USER shiptrack
 
 EXPOSE 8082
-HEALTHCHECK --interval=10s --timeout=3s --start-period=60s --retries=5 \
+HEALTHCHECK --interval=10s --timeout=3s --start-period=180s --start-interval=5s --retries=5 \
   CMD wget -qO- http://localhost:8082/actuator/health || exit 1
 
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]
