@@ -67,7 +67,7 @@ jobs:
           sed -i "s|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=Ci-admin-$(openssl rand -hex 6)|" .env
 
       - name: Start the stack
-        run: docker compose up -d --build --wait --wait-timeout 300
+        run: docker compose up -d --build --wait --wait-timeout 480
 
       - name: Run Postman collection through the gateway
         run: |
