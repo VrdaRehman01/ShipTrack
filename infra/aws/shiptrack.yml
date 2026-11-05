@@ -24,9 +24,11 @@ Parameters:
     Description: Set to false if this AWS account already has the token.actions.githubusercontent.com OIDC provider.
   InstanceType:
     Type: String
-    Default: t3.medium
-    AllowedValues: [t3.medium, t3.large]
-    Description: 4 GB RAM is the minimum for 5 JVM services + MySQL.
+    Default: c7i-flex.large
+    AllowedValues: [c7i-flex.large, m7i-flex.large, t3.medium, t3.large]
+    Description: >
+      4 GB RAM is the minimum for 5 JVM services + MySQL. c7i-flex.large (4 GB) and m7i-flex.large (8 GB) are
+      free-tier eligible on AWS Free plan accounts; t3.* are not.
   AllowedHttpCidr:
     Type: String
     Default: 0.0.0.0/0

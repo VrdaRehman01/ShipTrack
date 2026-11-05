@@ -9,7 +9,7 @@ Deploy workflow builds the images, pushes them to ECR and updates the instance t
 | Images | ECR: `shiptrack/<service>` (last 5 kept) |
 | Secrets | Secrets Manager: `shiptrack/prod` (one JSON secret, generated, never in Git) |
 | Logs | CloudWatch Logs: `/shiptrack/prod` (7 days) |
-| Server | EC2 `shiptrack-prod` (t3.medium, Amazon Linux 2023), port 80 only, no SSH |
+| Server | EC2 `shiptrack-prod` (c7i-flex.large: 2 vCPU / 4 GB, free-tier eligible; Amazon Linux 2023), port 80 only, no SSH |
 | Cost guardrail | AWS Budget `shiptrack-monthly`: email at 80% of $5 and when forecast exceeds $5 |
 
 **Cost:** about **$0.06/hour while running** (≈ $1.50 for a full day) and **≈ $2/month while stopped**
@@ -24,8 +24,8 @@ In the AWS console: top-right account menu → **Security credentials** → **As
 Don't create access keys for root. You won't need any keys at all with the steps below.
 
 ### 1. Open CloudShell in Sydney
-Make sure the region (top right) is **Asia Pacific (Sydney) ap-southeast-2**, then click the **CloudShell**
-icon (`>_`) in the top bar. It's a terminal that is already logged in to your account.
+Check the browser address bar contains `region=ap-southeast-2` (Sydney). Then click **CloudShell** in the
+bottom-left corner of the console (or the `>_` icon in the top bar). It's a terminal that is already logged in to your account.
 
 ### 2. Upload the template
 In CloudShell: **Actions → Upload file** → choose `infra/aws/shiptrack.yml` from this repo.
