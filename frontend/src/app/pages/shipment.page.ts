@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { forkJoin, of, catchError } from 'rxjs';
 import { Api, describeError, errorCode } from '../core/api';
+import { isSecureContextAvailable } from '../core/ids';
 import { AuthService } from '../core/auth.service';
 import { Invoice, Location, Shipment, ShipmentStatus, StatusChange, User } from '../core/models';
 import { MOVE_LABEL, STATUS_LABEL, movesFor } from '../core/status';
@@ -260,6 +261,12 @@ export class ShipmentPage {
   protected shareLocation(quiet = false): void {
     const s = this.shipment();
     if (!s) return;
+    if (!isSecureContextAvailable()) {
+      // Browsers only allow GPS on https sites (or localhost).
+      this.say('Location sharing needs a secure connection. Open ShipTrack with https:// to share your location.', true);
+      this.stopAutoShare();
+      return;
+    }
     if (!('geolocation' in navigator)) {
       this.say('This browser can’t share location.', true);
       return;

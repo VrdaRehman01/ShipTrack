@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { Api, describeError } from '../core/api';
+import { newIdempotencyKey } from '../core/ids';
 import { NewShipment } from '../core/models';
 
 /**
@@ -97,7 +98,7 @@ export class NewShipmentPage {
   protected readonly error = signal<string | null>(null);
 
   /** Same key for every retry of this form; a new form gets a new key. */
-  private readonly idempotencyKey = crypto.randomUUID();
+  private readonly idempotencyKey = newIdempotencyKey();
 
   protected submit(): void {
     this.saving.set(true);

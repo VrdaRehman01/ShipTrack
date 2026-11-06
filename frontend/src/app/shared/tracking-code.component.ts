@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, input, signal, viewChild } from '@angular/core';
 
 /** The tracking code as a parcel label: the only place the high-visibility amber is used. */
 @Component({
@@ -6,7 +6,7 @@ import { ChangeDetectionStrategy, Component, input, signal } from '@angular/core
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <span class="label" [class.large]="large()">
-      <span class="code">{{ code() }}</span>
+      <span class="code" #codeText>{{ code() }}</span>
       <button type="button" class="copy" (click)="copy()" [attr.aria-label]="'Copy tracking code ' + code()">
         {{ copied() ? 'Copied' : 'Copy' }}
       </button>
@@ -33,14 +33,22 @@ export class TrackingCodeComponent {
   readonly code = input.required<string>();
   readonly large = input(false);
   readonly copied = signal(false);
+  private readonly codeText = viewChild.required<ElementRef<HTMLElement>>('codeText');
 
   async copy(): Promise<void> {
     try {
+      // The Clipboard API only exists on https (or localhost).
+      if (!navigator.clipboard) throw new Error('clipboard unavailable');
       await navigator.clipboard.writeText(this.code());
       this.copied.set(true);
       setTimeout(() => this.copied.set(false), 1800);
     } catch {
-      // clipboard blocked: the code is still visible to copy by hand
+      // Fallback: select the code so Ctrl+C / long-press copies it.
+      const range = document.createRange();
+      range.selectNodeContents(this.codeText().nativeElement);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
     }
   }
 }
