@@ -16,8 +16,10 @@ with an ALB and RDS, that costs roughly $100 or more a month while running. That
   generates the remaining passwords and saves them to the same secret. At $0.40 per secret per month, one secret
   instead of five matters on this budget.
 - **CloudWatch Logs** through Docker's `awslogs` driver, kept for 7 days.
-- **GitHub Actions** deploys only from `main`, after CI passes. It authenticates with OIDC (no stored keys), and
-  rolls the instance over with SSM Run Command.
+- **GitHub Actions** deploys only from `main`, after CI passes, and rolls the instance over with SSM Run Command.
+  It logs in with keyless OIDC where allowed. AWS Free plan "project" accounts block creating the OIDC provider
+  (organization SCP), so the default is a deploy-only IAM user whose key lives only in GitHub Secrets. Both use the
+  same least-privilege policy (push to the 5 ECR repos, SSM on one instance).
 - Everything is in one CloudFormation template (`infra/aws/shiptrack.yml`), including an AWS Budget at $5.
 - MySQL runs in a container on the instance's encrypted EBS volume, not RDS, to keep costs down.
 
