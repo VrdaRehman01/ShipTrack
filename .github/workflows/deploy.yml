@@ -87,8 +87,10 @@ jobs:
           # A freshly created instance installs Docker on first boot; wait until its SSM agent is online.
           for i in $(seq 1 30); do
             ping=$(aws ssm describe-instance-information --filters "Key=InstanceIds,Values=$id" \
-              --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || true)
+              --query 'InstanceInformationList[0].PingStatus' --output text 2>&1 || true)
             [ "$ping" = "Online" ] && break
+            # Older stacks lack ssm:DescribeInstanceInformation: don't wait, just try the deploy.
+            case "$ping" in *AccessDenied*) echo "Can't check the SSM agent (update the stack to enable this); continuing"; break;; esac
             echo "Waiting for SSM agent on $id ($ping)"; sleep 10
           done
 
