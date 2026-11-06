@@ -94,6 +94,16 @@ Open `http://<ApiUrl>/swagger-ui.html` and log in, or run the Postman collection
 
 ---
 
+## Updating the AWS stack
+When `infra/aws/shiptrack.yml` changes (for example, the website added the `shiptrack/frontend` image repository),
+update the stack **before** merging the change, so the deploy has everything it needs. In CloudShell:
+```bash
+rm -f shiptrack.yml          # CloudShell won't overwrite uploads
+# Actions → Upload file → infra/aws/shiptrack.yml, then:
+aws cloudformation deploy --stack-name shiptrack --template-file shiptrack.yml   --capabilities CAPABILITY_NAMED_IAM --parameter-overrides AlertEmail=you@example.com
+```
+Existing resources, including the server and its database, are kept. Only the differences are applied.
+
 ## Day-to-day
 
 **Stop when not demoing** (saves ~95% of the cost):

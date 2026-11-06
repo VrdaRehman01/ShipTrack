@@ -1,0 +1,160 @@
+/*
+ * ShipTrack web: design tokens and base styles.
+ * Idea: parcels on the road. Highway-sign type (Barlow), navy ink, route green for progress,
+ * high-visibility amber only for tracking codes (like a parcel label). The route line is the one bold element.
+ */
+@import "@fontsource/barlow/400.css";
+@import "@fontsource/barlow/500.css";
+@import "@fontsource/barlow/600.css";
+@import "@fontsource/barlow-condensed/600.css";
+@import "@fontsource/barlow-condensed/700.css";
+@import "leaflet/dist/leaflet.css";
+
+:root {
+  /* colour */
+  --ink: #18222d;          /* text, headings */
+  --ink-soft: #4a5866;     /* secondary text */
+  --paper: #ffffff;        /* panels */
+  --ground: #eef2f0;       /* page background (cool, slightly green) */
+  --line: #d5ddd9;         /* borders */
+  --route: #0e7a5a;        /* progress, primary actions */
+  --route-deep: #095c44;
+  --route-wash: #e3f1ec;
+  --signal: #ffb300;       /* tracking-code label only */
+  --signal-ink: #2e2100;
+  --danger: #b3261e;
+  --danger-wash: #fbeceb;
+
+  /* type: one family, two widths */
+  --font: "Barlow", system-ui, sans-serif;
+  --font-sign: "Barlow Condensed", "Barlow", system-ui, sans-serif;
+  --step--1: 0.8125rem;  /* 13 */
+  --step-0: 1rem;        /* 16 */
+  --step-1: 1.25rem;     /* 20 */
+  --step-2: 1.5625rem;   /* 25 */
+  --step-3: 1.9375rem;   /* 31 */
+  --step-4: 2.4375rem;   /* 39 */
+  --step-5: 3.8125rem;   /* 61 */
+
+  /* space and shape */
+  --s1: 0.25rem; --s2: 0.5rem; --s3: 0.75rem; --s4: 1rem; --s5: 1.5rem; --s6: 2rem; --s7: 3rem;
+  --radius-control: 6px;   /* inputs, buttons */
+  --radius-panel: 10px;    /* panels */
+  --measure: 72ch;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: var(--step-0);
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--ground);
+  font-variant-numeric: tabular-nums;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-sign);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.005em;
+  margin: 0 0 var(--s3);
+}
+h1 { font-size: var(--step-4); }
+h2 { font-size: var(--step-2); }
+h3 { font-size: var(--step-1); }
+p { margin: 0 0 var(--s4); max-width: var(--measure); }
+
+a { color: var(--route-deep); text-underline-offset: 0.2em; }
+a:hover { color: var(--route); }
+
+/* Keyboard focus is always visible. */
+:focus-visible {
+  outline: 3px solid var(--route);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ---------------------------------------------------------------- controls */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  min-height: 44px;            /* touch target for drivers */
+  padding: 0 var(--s5);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  font: 600 var(--step-0) / 1 var(--font);
+  cursor: pointer;
+  text-decoration: none;
+  background: var(--route);
+  color: #fff;
+}
+.btn:hover { background: var(--route-deep); color: #fff; }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-quiet { background: transparent; color: var(--ink); border-color: var(--line); }
+.btn-quiet:hover { background: var(--paper); color: var(--ink); border-color: var(--ink-soft); }
+.btn-danger { background: transparent; color: var(--danger); border-color: #e7b9b6; }
+.btn-danger:hover { background: var(--danger-wash); color: var(--danger); }
+.btn-big { min-height: 56px; font-size: var(--step-1); width: 100%; }
+
+.field { display: grid; gap: var(--s1); margin-bottom: var(--s4); }
+.field label { font-weight: 600; font-size: var(--step--1); color: var(--ink-soft); }
+.field input, .field select, .field textarea {
+  min-height: 44px;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  font: inherit;
+  color: inherit;
+}
+.field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible {
+  outline: 3px solid var(--route);
+  outline-offset: 0;
+  border-color: var(--route);
+}
+.field .hint { font-size: var(--step--1); color: var(--ink-soft); }
+.field .problem { font-size: var(--step--1); color: var(--danger); }
+.field input.ng-invalid.ng-touched, .field select.ng-invalid.ng-touched { border-color: var(--danger); }
+
+.panel {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  padding: var(--s5);
+}
+
+.notice {
+  padding: var(--s3) var(--s4);
+  border-radius: var(--radius-control);
+  background: var(--route-wash);
+  color: var(--route-deep);
+  margin-bottom: var(--s4);
+}
+.notice-error { background: var(--danger-wash); color: var(--danger); }
+
+.muted { color: var(--ink-soft); }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* Tables become stacked rows on phones (see .rows). */
+.rows { width: 100%; border-collapse: collapse; background: var(--paper); }
+.rows th { text-align: left; font-size: var(--step--1); color: var(--ink-soft); font-weight: 600; padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); }
+.rows td { padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); vertical-align: middle; }
+.rows tr:last-child td { border-bottom: 0; }
+@media (max-width: 640px) {
+  .rows thead { display: none; }
+  .rows tr { display: grid; gap: var(--s1); padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); }
+  .rows td { padding: 0; border: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

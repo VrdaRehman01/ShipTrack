@@ -1,4 +1,4 @@
-# Start everything:   docker compose up -d --build      → API + Swagger at http://localhost:8080
+# Start everything:   docker compose up -d --build      → website at http://localhost:4200, API + Swagger at http://localhost:8080
 # Only the database:  docker compose up -d mysql        (then run services from your IDE)
 #
 # Clients talk to the gateway only (port 8080). Service ports are bound to 127.0.0.1 for debugging.
@@ -121,6 +121,17 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
     ports:
       - "${GATEWAY_HOST_PORT:-8080}:8080"
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    ports:
+      - "${WEB_HOST_PORT:-4200}:80"
 
 volumes:
   mysql-data:

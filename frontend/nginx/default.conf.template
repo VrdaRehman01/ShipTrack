@@ -1,0 +1,55 @@
+# ShipTrack web: serves the Angular app and forwards API/docs calls to the gateway on the same origin,
+# so the browser never needs CORS. ${API_GATEWAY} is filled in from the environment at container start.
+server {
+    listen 80;
+    server_tokens off;
+    root /usr/share/nginx/html;
+
+    # Docker's DNS, so nginx starts even if the gateway isn't up yet (it's resolved per request).
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $gateway http://${API_GATEWAY};
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # API, Swagger and gateway health -> gateway (path passed through unchanged).
+    location ~ ^/(api|docs|v3/api-docs|swagger-ui|actuator)(/|$) {
+        proxy_pass $gateway;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_read_timeout 30s;
+        client_max_body_size 1m;
+    }
+    location = /swagger-ui.html {
+        proxy_pass $gateway;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+    }
+
+    # Hashed build files never change: cache them for a year.
+    location ~* \.(?:js|css|woff2?|ico|png|svg)$ {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        add_header X-Content-Type-Options nosniff always;
+        try_files $uri =404;
+    }
+
+    # The app itself (Angular routes fall back to index.html). Strict security headers apply here only,
+    # so the proxied Swagger UI keeps working.
+    location / {
+        add_header Cache-Control "no-cache" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
+        add_header Permissions-Policy "geolocation=(self), camera=(), microphone=()" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+        try_files $uri $uri/ /index.html;
+    }
+}

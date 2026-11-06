@@ -1,7 +1,8 @@
 # Production stack on the EC2 instance (ADR 0007). Same services as docker-compose.yml, but:
 # - prebuilt images from ECR (tag = git commit), nothing is built on the server
 # - secrets come from Secrets Manager via scripts/deploy-on-host.sh (written to a root-only .env)
-# - logs go to CloudWatch; only the gateway is reachable, on port 80
+# - logs go to CloudWatch; only the website (nginx) is reachable, on port 80. It serves the app and
+#   forwards /api, Swagger and health to the gateway, which is no longer exposed itself
 # - memory limits so 5 JVMs + MySQL fit in 4 GB
 name: shiptrack
 
@@ -99,8 +100,18 @@ services:
       TRACKING_SERVICE_URL: http://tracking-service:8084
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70 -XX:+UseSerialGC -XX:TieredStopAtLevel=1
+
+  frontend:
+    image: ${ECR_REGISTRY}/shiptrack/frontend:${IMAGE_TAG}
+    restart: unless-stopped
+    mem_limit: 64m
+    depends_on:
+      api-gateway: { condition: service_healthy }
+    logging:
+      driver: awslogs
+      options: { awslogs-region: "${AWS_REGION}", awslogs-group: "${LOG_GROUP}", tag: "frontend" }
     ports:
-      - "80:8080"
+      - "80:80"
 
 volumes:
   mysql-data:

@@ -5,6 +5,8 @@ and the system bills each delivered shipment automatically.
 It's built as Java 21 microservices (Spring Boot 4 + Micronaut 4) behind one API gateway.
 
 ```
+Browser ──► Website (nginx) :4200 ──► API Gateway :8080 ──┬─► auth-service :8081 ...   (/api is forwarded)
+
 Client ──► API Gateway :8080 ──┬─► auth-service      :8081 ─► auth_db      users, roles, JWT
  (JWT check at the edge,       ├─► shipment-service  :8082 ─► shipment_db  lifecycle, drivers, history
   correlation ID, CORS,        │        │ on DELIVERED (async, circuit breaker, retried)
@@ -29,7 +31,8 @@ You need **Docker Desktop**. To run services from your IDE you also need **JDK 2
    ```bash
    docker compose up -d --build --wait
    ```
-4. **Open Swagger** at http://localhost:8080/swagger-ui.html. Use the dropdown in the top right to switch services.
+4. **Open the website** at http://localhost:4200. Track a parcel, create an account, or log in as the admin
+   from `.env`. Swagger for the API is at http://localhost:8080/swagger-ui.html; use the dropdown in the top right to switch services.
 5. **Run the full flow.** Import `postman/ShipTrack.postman_collection.json` into Postman and run it top to bottom,
    or use Newman:
    ```bash
@@ -121,6 +124,7 @@ $5 budget alarm is included. Every merge to `main` deploys automatically. One-ti
 ├── billing-service/   # Spring Boot 4
 ├── tracking-service/  # Micronaut 4
 ├── api-gateway/       # Spring Cloud Gateway (WebMVC)
+├── frontend/          # Angular 21 website (customers, drivers, admins, public tracking)
 ├── config/            # Checkstyle rules
 ├── docker/mysql/init/ # creates one database per service
 ├── docs/adr/          # Architecture Decision Records

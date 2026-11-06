@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SERVICES: auth-service shipment-service billing-service tracking-service api-gateway
+  SERVICES: auth-service shipment-service billing-service tracking-service api-gateway frontend
 
 jobs:
   deploy:
@@ -121,12 +121,14 @@ jobs:
         run: |
           host=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
             --query 'Reservations[0].Instances[0].PublicDnsName' --output text)
-          echo "url=http://$host/swagger-ui.html" >> "$GITHUB_OUTPUT"
+          echo "url=http://$host/" >> "$GITHUB_OUTPUT"
           for i in $(seq 1 30); do
-            if curl -fsS "http://$host/actuator/health" | grep -q UP; then
+            if curl -fsS "http://$host/actuator/health" | grep -q UP && curl -fsS "http://$host/healthz" >/dev/null; then
               curl -fsS -o /dev/null -w "public tracking (expect 404): %{http_code}\n" \
                 "http://$host/api/v1/public/shipments/ST-2000-000000" || true
-              echo "### Deployed \`$IMAGE_TAG\` → http://$host/swagger-ui.html" >> "$GITHUB_STEP_SUMMARY"
+              echo "### Deployed \`$IMAGE_TAG\`" >> "$GITHUB_STEP_SUMMARY"
+              echo "- Website: http://$host/" >> "$GITHUB_STEP_SUMMARY"
+              echo "- Swagger: http://$host/swagger-ui.html" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
             sleep 10

@@ -92,6 +92,14 @@ Resources:
       EmptyOnDelete: true
       LifecyclePolicy: { LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep last 5","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}' }
 
+  FrontendRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: shiptrack/frontend
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EmptyOnDelete: true
+      LifecyclePolicy: { LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep last 5","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}' }
+
   # ------------------------------------------------------------------ secrets (one secret = USD 0.40/month)
   # AWS generates the JWT secret; the first deploy adds the DB, internal-key and admin passwords
   # (random, generated on the instance) to this same secret. Nothing secret is ever in Git.
@@ -146,7 +154,7 @@ Resources:
   SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: ShipTrack API gateway on port 80 only (no SSH; use SSM Session Manager)
+      GroupDescription: ShipTrack website and API on port 80 only (no SSH; use SSM Session Manager)
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 80
@@ -226,6 +234,7 @@ Resources:
               - !GetAtt BillingRepo.Arn
               - !GetAtt TrackingRepo.Arn
               - !GetAtt GatewayRepo.Arn
+              - !GetAtt FrontendRepo.Arn
           - Effect: Allow
             Action: ssm:SendCommand
             Resource:
@@ -286,7 +295,7 @@ Outputs:
     Description: Set as GitHub repo variable AWS_REGION.
     Value: !Ref AWS::Region
   ApiUrl:
-    Description: Public URL (changes after stop/start; see docs/DEPLOYMENT.md).
+    Description: Public URL of the website and API (changes after stop/start; see docs/DEPLOYMENT.md).
     Value: !Sub "http://${Instance.PublicDnsName}"
   SwaggerUrl:
     Value: !Sub "http://${Instance.PublicDnsName}/swagger-ui.html"

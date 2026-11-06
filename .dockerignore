@@ -8,3 +8,5 @@
 .env
 docs
 postman
+**/dist
+**/.angular

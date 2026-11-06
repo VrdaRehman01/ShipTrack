@@ -23,7 +23,10 @@ public class TrackingExceptionHandler implements ExceptionHandler<TrackingExcept
     @Override
     public HttpResponse<ApiError> handle(HttpRequest request, TrackingException e) {
         if (e.getStatus().getCode() >= 500) {
-            log.warn("{} on {} {}: {}", e.getCode(), request.getMethod(), request.getPath(), e.getMessage());
+            // Include the underlying cause (e.g. timeout, connection refused, upstream status) so outages are diagnosable.
+            Throwable cause = e.getCause();
+            log.warn("{} on {} {}: {} (cause: {})", e.getCode(), request.getMethod(), request.getPath(), e.getMessage(),
+                    cause == null ? "none" : cause.getClass().getSimpleName() + ": " + cause.getMessage());
         }
         ApiError body = new ApiError(Instant.now().truncatedTo(ChronoUnit.SECONDS), e.getStatus().getCode(), e.getCode(),
                 e.getMessage(), request.getPath(), CorrelationIdFilter.of(request));
