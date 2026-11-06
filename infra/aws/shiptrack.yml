@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   ShipTrack demo environment (ADR 0007): one EC2 instance running the Docker Compose stack, images in ECR,
-  secrets in Secrets Manager, logs in CloudWatch, a monthly budget alarm, and a GitHub OIDC role for deploys.
+  secrets in Secrets Manager, logs in CloudWatch, a monthly budget alarm, and a least-privilege identity for GitHub Actions deploys.
   Costs about USD 0.06/hour while the instance runs and about USD 2/month while stopped (disk + secret).
 
 Parameters:
@@ -17,11 +17,19 @@ Parameters:
     Type: String
     Default: VrdaRehman01/ShipTrack
     Description: owner/repo allowed to deploy (main branch only).
+  GitHubAuthMode:
+    Type: String
+    Default: accessKey
+    AllowedValues: [accessKey, oidc]
+    Description: >
+      How GitHub Actions logs in to deploy. "oidc" = keyless (preferred, but blocked on AWS Free plan "project"
+      accounts by an organization policy). "accessKey" = a deploy-only IAM user; you create its key in CloudShell
+      and store it in GitHub Secrets.
   CreateGitHubOidcProvider:
     Type: String
     Default: "true"
     AllowedValues: ["true", "false"]
-    Description: Set to false if this AWS account already has the token.actions.githubusercontent.com OIDC provider.
+    Description: Only for oidc mode. Set to false if the account already has the GitHub OIDC provider.
   InstanceType:
     Type: String
     Default: c7i-flex.large
@@ -42,7 +50,9 @@ Parameters:
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
 
 Conditions:
-  CreateOidc: !Equals [!Ref CreateGitHubOidcProvider, "true"]
+  UseOidc: !Equals [!Ref GitHubAuthMode, oidc]
+  UseAccessKey: !Equals [!Ref GitHubAuthMode, accessKey]
+  CreateOidc: !And [!Condition UseOidc, !Equals [!Ref CreateGitHubOidcProvider, "true"]]
 
 Resources:
   # ------------------------------------------------------------------ images
@@ -190,7 +200,51 @@ Resources:
         - Notification: { NotificationType: FORECASTED, ComparisonOperator: GREATER_THAN, Threshold: 100, ThresholdType: PERCENTAGE }
           Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
 
-  # ------------------------------------------------------------------ GitHub Actions deploys (OIDC: no AWS keys in GitHub)
+  # ------------------------------------------------------------------ GitHub Actions deploys
+  # Exactly what a deploy needs: push the 5 images, run a command on THIS instance, read the results.
+  DeployPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: shiptrack-deploy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: ecr:GetAuthorizationToken
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - ecr:BatchCheckLayerAvailability
+              - ecr:BatchGetImage
+              - ecr:CompleteLayerUpload
+              - ecr:InitiateLayerUpload
+              - ecr:PutImage
+              - ecr:UploadLayerPart
+            Resource:
+              - !GetAtt AuthRepo.Arn
+              - !GetAtt ShipmentRepo.Arn
+              - !GetAtt BillingRepo.Arn
+              - !GetAtt TrackingRepo.Arn
+              - !GetAtt GatewayRepo.Arn
+          - Effect: Allow
+            Action: ssm:SendCommand
+            Resource:
+              - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${Instance}"
+              - !Sub "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
+          - Effect: Allow
+            Action: [ssm:GetCommandInvocation, ssm:ListCommandInvocations, ec2:DescribeInstances]
+            Resource: "*"
+
+  # Option A (default): a deploy-only IAM user. Its access key is created by you in CloudShell, never by this
+  # template, so the secret never appears in CloudFormation outputs or events.
+  DeployUser:
+    Type: AWS::IAM::User
+    Condition: UseAccessKey
+    Properties:
+      UserName: shiptrack-github-deploy
+      ManagedPolicyArns: [!Ref DeployPolicy]
+
+  # Option B: keyless GitHub OIDC (no long-lived keys), where the account allows it.
   GitHubOidcProvider:
     Type: AWS::IAM::OIDCProvider
     Condition: CreateOidc
@@ -200,8 +254,10 @@ Resources:
 
   DeployRole:
     Type: AWS::IAM::Role
+    Condition: UseOidc
     Properties:
       RoleName: shiptrack-github-deploy
+      ManagedPolicyArns: [!Ref DeployPolicy]
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -213,42 +269,17 @@ Resources:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
                 token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepo}:ref:refs/heads/main"
-      Policies:
-        - PolicyName: shiptrack-deploy
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: ecr:GetAuthorizationToken
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:BatchGetImage
-                  - ecr:CompleteLayerUpload
-                  - ecr:InitiateLayerUpload
-                  - ecr:PutImage
-                  - ecr:UploadLayerPart
-                Resource:
-                  - !GetAtt AuthRepo.Arn
-                  - !GetAtt ShipmentRepo.Arn
-                  - !GetAtt BillingRepo.Arn
-                  - !GetAtt TrackingRepo.Arn
-                  - !GetAtt GatewayRepo.Arn
-              - Effect: Allow
-                Action: ssm:SendCommand
-                Resource:
-                  - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${Instance}"
-                  - !Sub "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
-              - Effect: Allow
-                Action: [ssm:GetCommandInvocation, ssm:ListCommandInvocations, ec2:DescribeInstances]
-                Resource: "*"
 
 Outputs:
   InstanceId:
     Description: Set as GitHub repo variable AWS_INSTANCE_ID.
     Value: !Ref Instance
+  DeployUserName:
+    Condition: UseAccessKey
+    Description: Create its access key in CloudShell (docs/DEPLOYMENT.md) and store it as GitHub secrets.
+    Value: !Ref DeployUser
   DeployRoleArn:
+    Condition: UseOidc
     Description: Set as GitHub repo variable AWS_DEPLOY_ROLE_ARN.
     Value: !GetAtt DeployRole.Arn
   Region:

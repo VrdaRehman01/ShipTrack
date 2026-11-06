@@ -1,8 +1,9 @@
 name: Deploy
 
 # Only main deploys: after CI passes on main (or by hand), build the images, push them to ECR and roll the
-# EC2 stack over via SSM. Authenticates with GitHub OIDC; there are no AWS keys stored in GitHub.
-# Skips itself until the repo variables from docs/DEPLOYMENT.md are set, so it is safe before AWS exists.
+# EC2 stack over via SSM. Logs in with keyless OIDC (AWS_DEPLOY_ROLE_ARN variable) when the account allows it,
+# otherwise with a deploy-only IAM user's key (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY secrets).
+# Skips itself until the AWS_INSTANCE_ID variable is set (docs/DEPLOYMENT.md), so it is safe before AWS exists.
 on:
   workflow_run:
     workflows: [CI]
@@ -24,7 +25,7 @@ env:
 jobs:
   deploy:
     if: >-
-      vars.AWS_DEPLOY_ROLE_ARN != '' &&
+      vars.AWS_INSTANCE_ID != '' &&
       (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -40,9 +41,19 @@ jobs:
         with:
           ref: ${{ env.IMAGE_TAG }}
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: AWS login (keyless OIDC)
+        if: vars.AWS_DEPLOY_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: AWS login (deploy user key)
+        if: vars.AWS_DEPLOY_ROLE_ARN == ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - id: ecr
