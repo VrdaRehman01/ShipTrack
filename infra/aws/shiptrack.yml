@@ -45,9 +45,6 @@ Parameters:
     Type: String
     Default: admin@shiptrack.demo
     Description: Login for the first ADMIN account (its password is generated into Secrets Manager).
-  AmiId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
 
 Conditions:
   UseOidc: !Equals [!Ref GitHubAuthMode, oidc]
@@ -164,7 +161,10 @@ Resources:
   Instance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !Ref AmiId
+      # Dynamic reference, not an SSM parameter type: an SSM parameter type re-resolves "latest" on EVERY stack
+      # update, so a newer Amazon Linux release silently REPLACES the instance (and wipes its database). This is
+      # resolved when the instance is created and then left alone on later updates.
+      ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
       InstanceType: !Ref InstanceType
       IamInstanceProfile: !Ref InstanceProfile
       SecurityGroupIds: [!GetAtt SecurityGroup.GroupId]
@@ -241,7 +241,7 @@ Resources:
               - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${Instance}"
               - !Sub "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
           - Effect: Allow
-            Action: [ssm:GetCommandInvocation, ssm:ListCommandInvocations, ec2:DescribeInstances]
+            Action: [ssm:GetCommandInvocation, ssm:ListCommandInvocations, ssm:DescribeInstanceInformation, ec2:DescribeInstances]
             Resource: "*"
 
   # Option A (default): a deploy-only IAM user. Its access key is created by you in CloudShell, never by this

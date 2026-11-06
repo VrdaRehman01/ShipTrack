@@ -68,12 +68,14 @@ in chats.** Put them straight into GitHub, then run `clear` in CloudShell.
   | `AWS_ACCESS_KEY_ID` | the first value (`AKIA…`) |
   | `AWS_SECRET_ACCESS_KEY` | the second value |
 
-- **Variables** tab → **New repository variable**, twice:
+- **Variables** tab → **New repository variable**:
 
   | Name | Value |
   |---|---|
-  | `AWS_INSTANCE_ID` | `InstanceId` from step 4 |
   | `AWS_REGION` | `ap-southeast-2` |
+
+  The deploy finds the server by its name tag (`shiptrack-prod`), so no instance ID is needed. That also keeps
+  working if the server is ever replaced.
 
 The deploy user can only push ShipTrack images and run commands on this one instance. If its key ever leaks,
 delete it with `aws iam delete-access-key --user-name shiptrack-github-deploy --access-key-id AKIA...` and create a new one.
@@ -102,7 +104,13 @@ rm -f shiptrack.yml          # CloudShell won't overwrite uploads
 # Actions → Upload file → infra/aws/shiptrack.yml, then:
 aws cloudformation deploy --stack-name shiptrack --template-file shiptrack.yml   --capabilities CAPABILITY_NAMED_IAM --parameter-overrides AlertEmail=you@example.com
 ```
-Existing resources, including the server and its database, are kept. Only the differences are applied.
+Only the differences are applied. The server is kept unless the change touches the server itself.
+**Before you update, check the change set** if you have data you care about. Instance replacements show `Replacement: True`:
+```bash
+aws cloudformation deploy ... --no-execute-changeset    # then follow the printed describe-change-set command
+```
+The database lives on the server's disk, so a replaced server starts with an empty database (the passwords in
+Secrets Manager are kept).
 
 ## Day-to-day
 
@@ -140,7 +148,7 @@ secret recoverable for 7–30 days; to remove it immediately, run
 ## Troubleshooting
 | Problem | Fix |
 |---|---|
-| Deploy workflow is skipped | The `AWS_INSTANCE_ID` variable from step 5 isn't set |
+| Deploy workflow is skipped | The `AWS_REGION` variable from step 5 isn't set |
 | `The security token included in the request is invalid` | The `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` secrets are wrong; create a new key (step 5a) |
 | `Not authorized to perform sts:AssumeRoleWithWebIdentity` (oidc mode) | The workflow didn't run from `main`, or `GitHubRepo` in the stack doesn't match your repo |
 | Deploy step times out | First boot installs Docker; wait 2 minutes after the stack is created, then re-run. Check the deploy output in CloudWatch |

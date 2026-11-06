@@ -3,7 +3,8 @@ name: Deploy
 # Only main deploys: after CI passes on main (or by hand), build the images, push them to ECR and roll the
 # EC2 stack over via SSM. Logs in with keyless OIDC (AWS_DEPLOY_ROLE_ARN variable) when the account allows it,
 # otherwise with a deploy-only IAM user's key (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY secrets).
-# Skips itself until the AWS_INSTANCE_ID variable is set (docs/DEPLOYMENT.md), so it is safe before AWS exists.
+# Skips itself until the AWS_REGION variable is set (docs/DEPLOYMENT.md), so it is safe before AWS exists.
+# The instance is found by its Name tag (shiptrack-prod), so a replaced instance is picked up automatically.
 on:
   workflow_run:
     workflows: [CI]
@@ -25,7 +26,7 @@ env:
 jobs:
   deploy:
     if: >-
-      vars.AWS_INSTANCE_ID != '' &&
+      vars.AWS_REGION != '' &&
       (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -35,7 +36,6 @@ jobs:
     env:
       IMAGE_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
       AWS_REGION: ${{ vars.AWS_REGION }}
-      INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -71,14 +71,26 @@ jobs:
               -t "$REGISTRY/shiptrack/$svc:$IMAGE_TAG" --push .
           done
 
-      - name: Make sure the instance is running
+      - name: Find the instance and make sure it is running
         run: |
-          state=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
-            --query 'Reservations[0].Instances[0].State.Name' --output text)
-          if [ "$state" != "running" ]; then
-            echo "::error::Instance $INSTANCE_ID is $state. Start it (see docs/DEPLOYMENT.md) and re-run this workflow."
-            exit 1
+          read -r id state <<<"$(aws ec2 describe-instances \
+            --filters Name=tag:Name,Values=shiptrack-prod Name=instance-state-name,Values=pending,running,stopping,stopped \
+            --query 'Reservations[].Instances[] | sort_by(@, &LaunchTime)[-1].[InstanceId,State.Name]' --output text)"
+          if [ -z "$id" ] || [ "$id" = "None" ]; then
+            echo "::error::No instance tagged shiptrack-prod. Create the stack first (docs/DEPLOYMENT.md)."; exit 1
           fi
+          if [ "$state" != "running" ]; then
+            echo "::error::Instance $id is $state. Start it (see docs/DEPLOYMENT.md) and re-run this workflow."; exit 1
+          fi
+          echo "INSTANCE_ID=$id" >> "$GITHUB_ENV"
+          echo "Deploying to $id"
+          # A freshly created instance installs Docker on first boot; wait until its SSM agent is online.
+          for i in $(seq 1 30); do
+            ping=$(aws ssm describe-instance-information --filters "Key=InstanceIds,Values=$id" \
+              --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || true)
+            [ "$ping" = "Online" ] && break
+            echo "Waiting for SSM agent on $id ($ping)"; sleep 10
+          done
 
       - name: Deploy on the instance via SSM
         run: |
