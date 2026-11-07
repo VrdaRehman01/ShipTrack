@@ -90,8 +90,14 @@ jobs:
       - name: Build images
         run: docker compose build
 
+      # Docker Hub pulls fail now and then on shared runners; retry the image download before starting.
       - name: Start MySQL
-        run: docker compose up -d --wait --wait-timeout 240 mysql
+        run: |
+          for i in 1 2 3 4; do
+            docker compose pull mysql && break
+            echo "Pull failed (attempt $i), retrying in $((i * 10))s"; sleep $((i * 10))
+          done
+          docker compose up -d --wait --wait-timeout 240 mysql
 
       - name: Start services and gateway
         run: docker compose up -d --wait --wait-timeout 480
