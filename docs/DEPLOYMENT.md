@@ -9,11 +9,12 @@ Deploy workflow builds the images, pushes them to ECR and updates the instance t
 | Images | ECR: `shiptrack/<service>` (last 5 kept) |
 | Secrets | Secrets Manager: `shiptrack/prod` (one JSON secret, generated, never in Git) |
 | Logs | CloudWatch Logs: `/shiptrack/prod` (7 days) |
+| Website | CloudFront (https, `WebsiteUrl` output) → the server's fixed IP ([ADR 0009](adr/0009-https-cloudfront.md)) |
 | Server | EC2 `shiptrack-prod` (c7i-flex.large: 2 vCPU / 4 GB, free-tier eligible; Amazon Linux 2023), port 80 only, no SSH |
 | Cost guardrail | AWS Budget `shiptrack-monthly`: email at 80% of $5 and when forecast exceeds $5 |
 
-**Cost:** about **$0.06/hour while running** (≈ $1.50 for a full day) and **≈ $2/month while stopped**
-(disk + secret). Stop the instance when you're not demoing. New AWS accounts also get free-tier credits.
+**Cost:** about **$0.06/hour while running** (≈ $1.50 for a full day) and **≈ $5.50/month while stopped**
+(disk, secret and the fixed IP). Stop the instance when you're not demoing. New AWS accounts also get free-tier credits.
 
 ---
 
@@ -92,7 +93,8 @@ aws secretsmanager get-secret-value --secret-id shiptrack/prod \
   --query SecretString --output text | jq -r .adminPassword
 ```
 The admin email is `admin@shiptrack.demo` (stack parameter `AdminEmail`).
-Open `http://<ApiUrl>/swagger-ui.html` and log in, or run the Postman collection with `baseUrl=http://<ApiUrl>`.
+Open `<WebsiteUrl>` (step 4) and log in, or use `<WebsiteUrl>/swagger-ui.html`, or run the Postman collection
+with `baseUrl=<WebsiteUrl>`.
 
 ---
 
@@ -118,12 +120,10 @@ Secrets Manager are kept).
 ```bash
 aws ec2 stop-instances --instance-ids <InstanceId>
 ```
-**Start again** (the stack restarts by itself; the **public URL changes** after a stop/start):
+**Start again** (the stack restarts by itself; the address stays the same thanks to the fixed IP):
 ```bash
 aws ec2 start-instances --instance-ids <InstanceId>
 aws ec2 wait instance-status-ok --instance-ids <InstanceId>
-aws ec2 describe-instances --instance-ids <InstanceId> \
-  --query "Reservations[0].Instances[0].PublicDnsName" --output text
 ```
 Deploys fail fast with a clear message if the instance is stopped. Start it, then re-run the workflow.
 
@@ -152,4 +152,4 @@ secret recoverable for 7–30 days; to remove it immediately, run
 | `The security token included in the request is invalid` | The `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` secrets are wrong; create a new key (step 5a) |
 | `Not authorized to perform sts:AssumeRoleWithWebIdentity` (oidc mode) | The workflow didn't run from `main`, or `GitHubRepo` in the stack doesn't match your repo |
 | Deploy step times out | First boot installs Docker; wait 2 minutes after the stack is created, then re-run. Check the deploy output in CloudWatch |
-| Site unreachable | Instance stopped, or the URL changed after a restart (step "Start again") |
+| Site unreachable | Instance stopped (step "Start again"). Right after a stack update, CloudFront needs 5–15 minutes |

@@ -135,14 +135,17 @@ jobs:
         run: |
           host=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" \
             --query 'Reservations[0].Instances[0].PublicDnsName' --output text)
-          echo "url=http://$host/" >> "$GITHUB_OUTPUT"
+          site=$(aws cloudformation describe-stacks --stack-name shiptrack             --query "Stacks[0].Outputs[?OutputKey=='WebsiteUrl'].OutputValue" --output text 2>/dev/null || true)
+          case "$site" in https://*) ;; *) site="http://$host";; esac
+          echo "url=$site/" >> "$GITHUB_OUTPUT"
           for i in $(seq 1 30); do
             if curl -fsS "http://$host/actuator/health" | grep -q UP && curl -fsS "http://$host/healthz" >/dev/null; then
               curl -fsS -o /dev/null -w "public tracking (expect 404): %{http_code}\n" \
                 "http://$host/api/v1/public/shipments/ST-2000-000000" || true
               echo "### Deployed \`$IMAGE_TAG\`" >> "$GITHUB_STEP_SUMMARY"
-              echo "- Website: http://$host/" >> "$GITHUB_STEP_SUMMARY"
-              echo "- Swagger: http://$host/swagger-ui.html" >> "$GITHUB_STEP_SUMMARY"
+              echo "- Website: $site/" >> "$GITHUB_STEP_SUMMARY"
+              echo "- Swagger: $site/swagger-ui.html" >> "$GITHUB_STEP_SUMMARY"
+              echo "- Server (plain http, for debugging): http://$host/" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
             sleep 10
