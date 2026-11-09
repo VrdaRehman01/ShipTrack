@@ -12,6 +12,7 @@ class TestcontainersConfiguration {
 
     @Bean
     @ServiceConnection
+    @SuppressWarnings("resource") // Spring owns the bean and closes the container on shutdown
     MySQLContainer mysqlContainer() {
         // Timeouts make a stalled readiness probe fail fast and retry, instead of hanging for minutes
         // on a half-open connection through Docker Desktop's port proxy.

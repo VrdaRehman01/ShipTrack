@@ -7,7 +7,9 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Date;
+import java.util.Optional;
 import javax.crypto.SecretKey;
 
 /**
@@ -18,6 +20,7 @@ public class JwtVerifier {
 
     public static final String CLAIM_EMAIL = "email";
     public static final String CLAIM_ROLE = "role";
+    public static final String CLAIM_SESSION_START = "auth_time";
 
     private final JwtParser parser;
 
@@ -33,6 +36,17 @@ public class JwtVerifier {
     /** The HMAC key for a secret; shared with auth-service so both sides derive the same key. */
     public static SecretKey signingKey(String secret) {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * When the user logged in to get this token; empty for tokens issued before sessions could be renewed.
+     *
+     * @throws JwtException if the token is invalid in any way
+     */
+    public Optional<Instant> sessionStart(String token) {
+        return parser.parseSignedClaims(token).getPayload().get(CLAIM_SESSION_START) instanceof Number seconds
+                ? Optional.of(Instant.ofEpochSecond(seconds.longValue()))
+                : Optional.empty();
     }
 
     /**

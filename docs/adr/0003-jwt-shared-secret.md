@@ -16,5 +16,8 @@ on every request would add latency and make it a single point of failure.
 ## Consequences
 - Checking a token needs no network call, so it's fast.
 - Anyone holding the secret can mint tokens, so the secret must never reach Git or the logs.
-- Tokens can't be revoked before they expire. The short 15-minute expiry limits the damage. Refresh tokens come in v2.
+- Tokens can't be revoked before they expire. The short 15-minute expiry limits the damage.
+- `POST /api/v1/auth/refresh` swaps a valid token for a fresh one, so people actively using the app (drivers sharing
+  their location, say) stay logged in. Every token keeps its original login time (`auth_time`), and renewal stops 8
+  hours after it (`JWT_MAX_SESSION`). A stolen token could therefore be kept alive for up to 8 hours, not 15 minutes.
 - If we need stronger isolation, the upgrade path is RS256: auth-service keeps the private key and the others get only the public key.

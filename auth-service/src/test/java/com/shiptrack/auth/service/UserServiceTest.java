@@ -11,6 +11,7 @@ import com.shiptrack.common.security.Role;
 import com.shiptrack.auth.entity.User;
 import com.shiptrack.auth.exception.EmailAlreadyRegisteredException;
 import com.shiptrack.common.error.ApiException;
+import com.shiptrack.common.error.CommonErrorCode;
 import com.shiptrack.auth.repository.UserRepository;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -64,6 +65,16 @@ class UserServiceTest {
 
         assertThatThrownBy(() -> userService.createUser("ali@example.com", "pw123456", "Ali", Role.CUSTOMER))
                 .isInstanceOf(EmailAlreadyRegisteredException.class);
+    }
+
+    @Test
+    void createUserRejectsPasswordOver72BytesEvenWhenUnder72Characters() {
+        String fortyAccentedLetters = "é".repeat(40); // 40 characters, 80 bytes
+
+        assertThatThrownBy(() -> userService.createUser("ali@example.com", fortyAccentedLetters, "Ali", Role.CUSTOMER))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getCode()).isEqualTo(CommonErrorCode.VALIDATION_FAILED));
+        verify(passwordEncoder, never()).encode(any());
     }
 
     @Test

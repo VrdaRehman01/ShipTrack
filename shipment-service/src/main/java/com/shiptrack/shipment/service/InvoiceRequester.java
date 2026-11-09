@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.client.HttpClientErrorException;
 
 /**
  * FR-7 + the reliability NFR: asks billing-service for an invoice when a shipment is delivered.
@@ -91,7 +92,7 @@ public class InvoiceRequester {
     }
 
     /**
-     * @return true when billing has the invoice (or none is needed), false if we should try again later
+     * @return false if billing looks unavailable, so callers should back off; true otherwise
      */
     public boolean requestInvoice(Long shipmentId) {
         Shipment shipment = shipments.findById(shipmentId).orElse(null);
@@ -105,6 +106,10 @@ public class InvoiceRequester {
         } catch (CallNotPermittedException e) {
             log.info("Billing circuit is open; invoice for shipment {} will be retried", shipmentId);
             return false;
+        } catch (HttpClientErrorException e) {
+            // A 4xx is about this one shipment, not an outage. It stays uninvoiced, but mustn't hold up the queue behind it.
+            log.error("Billing rejected the invoice for shipment {}: {}", shipmentId, e.getStatusCode());
+            return true;
         } catch (RuntimeException e) {
             log.warn("Could not create invoice for shipment {} (will retry): {}", shipmentId, e.getMessage());
             return false;

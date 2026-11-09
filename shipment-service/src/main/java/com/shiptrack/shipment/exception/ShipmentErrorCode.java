@@ -13,6 +13,10 @@ public enum ShipmentErrorCode implements ErrorCode {
     INVALID_DRIVER(HttpStatus.BAD_REQUEST),
     /** Delivered or cancelled shipments can't be edited. */
     SHIPMENT_CLOSED(HttpStatus.CONFLICT),
+    /** A driver tried to accept a parcel that already has a driver, or is no longer waiting for one. */
+    JOB_TAKEN(HttpStatus.CONFLICT),
+    /** A driver tried to give back a parcel they have already collected. */
+    CANNOT_RELEASE_JOB(HttpStatus.CONFLICT),
     /** expectedVersion didn't match: someone else changed the shipment first. */
     VERSION_MISMATCH(HttpStatus.CONFLICT),
     /** FR-10: same Idempotency-Key reused with a different request body. */

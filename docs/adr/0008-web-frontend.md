@@ -15,7 +15,8 @@ It also needs a public tracking page.
   takes port 80 and the gateway is no longer exposed directly.
 - **Security:** strict CSP (`script-src 'self'`, no inline scripts; Angular's inline critical-CSS loader is
   disabled for this), `X-Frame-Options: DENY`, and geolocation allowed only for this site. The JWT is kept in
-  sessionStorage, so it is gone when the tab closes, and it expires after 15 minutes.
+  sessionStorage, so it is gone when the tab closes. It expires after 15 minutes without activity; while the app
+  is in use it is renewed, for up to 8 hours after logging in.
 - **Idempotency:** each "Send a parcel" form gets one `Idempotency-Key`, so double-clicks and retries never create
   duplicates (FR-10).
 - **Drivers on phones:** the browser's geolocation posts the driver's location, once or every minute while the page is open.

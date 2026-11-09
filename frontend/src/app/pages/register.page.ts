@@ -54,11 +54,19 @@ export class RegisterPage {
     this.loading.set(true);
     this.error.set(null);
     this.auth.register(this.email, this.password, this.fullName).subscribe({
-      next: () => void this.router.navigate(['/login'], { queryParams: { registered: 1 } }),
+      next: () => this.logInToNewAccount(),
       error: (err) => {
         this.loading.set(false);
         this.error.set(describeError(err));
       },
+    });
+  }
+
+  /** The account exists, so don't make them type it all again. If this fails they can still log in by hand. */
+  private logInToNewAccount(): void {
+    this.auth.login(this.email, this.password).subscribe({
+      next: () => void this.router.navigateByUrl(this.auth.home()),
+      error: () => void this.router.navigate(['/login'], { queryParams: { registered: 1 } }),
     });
   }
 }

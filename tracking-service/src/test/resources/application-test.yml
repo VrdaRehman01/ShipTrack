@@ -1,5 +1,8 @@
 # Test-only values; the datasource URL/user/password come from the Testcontainers MySQL.
 micronaut:
+  server:
+    # Any free port, so the tests still run while a local stack is using 8084.
+    port: -1
   security:
     token:
       jwt:

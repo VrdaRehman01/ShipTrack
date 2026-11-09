@@ -46,7 +46,8 @@ To stop everything, run `docker compose down`. Add `-v` to also delete the datab
 
 | Requirement | How |
 |---|---|
-| FR-1/2 Register, login, JWT | BCrypt passwords; HS256 JWT, 15-minute expiry; every service verifies the token itself |
+| Driver screen (`/driver`) | Open parcels to accept (one driver wins, enforced by `@Version`), next-step buttons, one-tap call and directions; customers see the driver's name, number and expected date, with live updates |
+| FR-1/2 Register, login, JWT | BCrypt passwords; HS256 JWT, 15-minute expiry, renewed during active use for up to 8 hours; every service verifies the token itself |
 | FR-3 Roles | CUSTOMER, DRIVER, ADMIN. Public sign-up creates customers only; admins create drivers; the first admin comes from `.env` |
 | FR-4 Shipments | Create, list (paginated, newest first), view; tracking codes like `ST-2026-000042` |
 | FR-5 Lifecycle | `CREATED → PICKED_UP → IN_TRANSIT → DELIVERED`, no skipping (400 `INVALID_STATUS_TRANSITION`). Customers may cancel before pickup |

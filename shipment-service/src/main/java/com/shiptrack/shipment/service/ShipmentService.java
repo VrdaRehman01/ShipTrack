@@ -1,9 +1,11 @@
 package com.shiptrack.shipment.service;
 
 import com.shiptrack.common.error.ApiException;
+import com.shiptrack.common.error.CommonErrorCode;
 import com.shiptrack.common.security.AuthenticatedUser;
 import com.shiptrack.common.security.Role;
 import com.shiptrack.shipment.client.AuthClient;
+import com.shiptrack.shipment.dto.AvailableJobResponse;
 import com.shiptrack.shipment.dto.CreateShipmentRequest;
 import com.shiptrack.shipment.dto.PublicTrackingResponse;
 import com.shiptrack.shipment.dto.ShipmentResponse;
@@ -20,6 +22,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.HexFormat;
 import java.util.List;
@@ -211,7 +214,8 @@ public class ShipmentService {
     }
 
     /** Admin assigns (or reassigns) a driver until the shipment is delivered or cancelled. */
-    public ShipmentResponse assignDriver(AuthenticatedUser caller, Long id, Long driverId) {
+    public ShipmentResponse assignDriver(AuthenticatedUser caller, Long id, Long driverId, LocalDate expectedDelivery) {
+        checkDeliveryDate(expectedDelivery);
         Shipment current = shipments.findById(id).orElseThrow(() -> ApiException.notFound("Shipment", id));
         checkOpen(current);
 
@@ -226,10 +230,56 @@ public class ShipmentService {
         return tx.execute(status -> {
             Shipment shipment = shipments.findById(id).orElseThrow(() -> ApiException.notFound("Shipment", id));
             checkOpen(shipment);
-            shipment.assignDriver(driverId);
+            shipment.assignDriver(driverId, driver.fullName(), driver.phone(), expectedDelivery);
             shipments.saveAndFlush(shipment);
             return ShipmentResponse.from(shipment);
         });
+    }
+
+    /** Parcels waiting for a driver, oldest first. No names or phone numbers until a driver has taken one. */
+    @Transactional(readOnly = true)
+    public Page<AvailableJobResponse> availableJobs(int page, int size) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "createdAt", "id"));
+        return shipments.findByStatusAndDriverIdIsNull(ShipmentStatus.CREATED, pageable).map(AvailableJobResponse::from);
+    }
+
+    /**
+     * A driver takes an open parcel. If two accept at the same moment, @Version lets exactly one win
+     * and the other gets 409, so a parcel can never end up with two drivers.
+     */
+    public ShipmentResponse acceptJob(AuthenticatedUser caller, Long id, LocalDate expectedDelivery) {
+        checkDeliveryDate(expectedDelivery);
+        // Outside the transaction so we don't hold a DB connection during an HTTP call.
+        AuthClient.UserView me = authClient.currentUser();
+        return tx.execute(status -> {
+            Shipment shipment = shipments.findById(id).orElseThrow(() -> ApiException.notFound("Shipment", id));
+            if (shipment.getStatus() != ShipmentStatus.CREATED || shipment.getDriverId() != null) {
+                throw new ApiException(ShipmentErrorCode.JOB_TAKEN, "This parcel has already been taken.");
+            }
+            shipment.assignDriver(caller.id(), me.fullName(), me.phone(), expectedDelivery);
+            shipments.saveAndFlush(shipment);
+            return ShipmentResponse.from(shipment);
+        });
+    }
+
+    /** The assigned driver hands an uncollected parcel back, so another driver can take it. */
+    @Transactional
+    public ShipmentResponse releaseJob(AuthenticatedUser caller, Long id) {
+        Shipment shipment = loadVisible(caller, id);
+        if (shipment.getStatus() != ShipmentStatus.CREATED) {
+            throw new ApiException(ShipmentErrorCode.CANNOT_RELEASE_JOB,
+                    "Only parcels that haven't been picked up can be given back. Ask an admin to reassign this one.");
+        }
+        shipment.releaseDriver();
+        shipments.saveAndFlush(shipment);
+        return ShipmentResponse.from(shipment);
+    }
+
+    /** One day of slack, because a driver's "today" can be behind the server's clock near midnight. */
+    private void checkDeliveryDate(LocalDate expectedDelivery) {
+        if (expectedDelivery != null && expectedDelivery.isBefore(LocalDate.now(clock).minusDays(1))) {
+            throw new ApiException(CommonErrorCode.VALIDATION_FAILED, "expectedDeliveryDate: can't be in the past");
+        }
     }
 
     // ---------------------------------------------------------------- rules
@@ -281,7 +331,7 @@ public class ShipmentService {
         if (from.isFinal()) {
             return " (" + from + " is final)";
         }
-        return " (next allowed: " + from.allowedNext().stream().map(Enum::name).sorted().collect(Collectors.joining(", ")) + ")";
+        return " (next allowed: " + from.allowedNext().stream().map(next -> next.name()).sorted().collect(Collectors.joining(", ")) + ")";
     }
 
     private static String blankToNull(String s) {

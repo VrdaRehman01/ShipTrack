@@ -3,7 +3,9 @@ package com.shiptrack.shipment.controller;
 import com.shiptrack.common.error.ApiError;
 import com.shiptrack.common.security.AuthenticatedUser;
 import com.shiptrack.common.web.PageResponse;
+import com.shiptrack.shipment.dto.AcceptJobRequest;
 import com.shiptrack.shipment.dto.AssignDriverRequest;
+import com.shiptrack.shipment.dto.AvailableJobResponse;
 import com.shiptrack.shipment.dto.CreateShipmentRequest;
 import com.shiptrack.shipment.dto.ShipmentResponse;
 import com.shiptrack.shipment.dto.StatusChangeResponse;
@@ -129,6 +131,37 @@ public class ShipmentController {
             content = @Content(schema = @Schema(implementation = ApiError.class)))
     public ShipmentResponse assignDriver(@AuthenticationPrincipal AuthenticatedUser caller, @PathVariable Long id,
                                          @Valid @RequestBody AssignDriverRequest request) {
-        return shipmentService.assignDriver(caller, id, request.driverId());
+        return shipmentService.assignDriver(caller, id, request.driverId(), request.expectedDeliveryDate());
+    }
+
+    @GetMapping("/available")
+    @PreAuthorize("hasRole('DRIVER')")
+    @Operation(summary = "Parcels waiting for a driver, oldest first (driver)",
+            description = "Addresses and weight only. Names and phone numbers come once the driver has accepted.")
+    public PageResponse<AvailableJobResponse> availableJobs(
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+        return PageResponse.from(shipmentService.availableJobs(page, size), job -> job);
+    }
+
+    @PostMapping("/{id}/release")
+    @PreAuthorize("hasRole('DRIVER')")
+    @Operation(summary = "Give back a parcel that hasn't been picked up yet (assigned driver)")
+    @ApiResponse(responseCode = "403", description = "Not your parcel",
+            content = @Content(schema = @Schema(implementation = ApiError.class)))
+    @ApiResponse(responseCode = "409", description = "CANNOT_RELEASE_JOB: already picked up",
+            content = @Content(schema = @Schema(implementation = ApiError.class)))
+    public ShipmentResponse releaseJob(@AuthenticationPrincipal AuthenticatedUser caller, @PathVariable Long id) {
+        return shipmentService.releaseJob(caller, id);
+    }
+
+    @PostMapping("/{id}/accept")
+    @PreAuthorize("hasRole('DRIVER')")
+    @Operation(summary = "Take an open parcel (driver)")
+    @ApiResponse(responseCode = "409", description = "JOB_TAKEN or CONCURRENT_MODIFICATION: another driver got there first",
+            content = @Content(schema = @Schema(implementation = ApiError.class)))
+    public ShipmentResponse acceptJob(@AuthenticationPrincipal AuthenticatedUser caller, @PathVariable Long id,
+                                      @RequestBody(required = false) AcceptJobRequest request) {
+        return shipmentService.acceptJob(caller, id, request == null ? null : request.expectedDeliveryDate());
     }
 }

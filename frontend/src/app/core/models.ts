@@ -26,6 +26,7 @@ export interface User {
   email: string;
   fullName: string;
   role: Role;
+  phone?: string | null;
   createdAt: string;
 }
 
@@ -55,6 +56,19 @@ export interface Shipment {
   createdAt: string;
   updatedAt: string;
   deliveredAt: string | null;
+  driverName: string | null;
+  driverPhone: string | null;
+  expectedDeliveryDate: string | null; // yyyy-MM-dd
+}
+
+/** A parcel waiting for a driver: no names or phone numbers until it has been accepted. */
+export interface AvailableJob {
+  id: number;
+  pickupAddress: string;
+  deliveryAddress: string;
+  weightKg: string;
+  description: string | null;
+  createdAt: string;
 }
 
 export interface NewShipment {

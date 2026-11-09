@@ -21,6 +21,7 @@ public class TrackingExceptionHandler implements ExceptionHandler<TrackingExcept
     private static final Logger log = LoggerFactory.getLogger(TrackingExceptionHandler.class);
 
     @Override
+    @SuppressWarnings("rawtypes") // Micronaut's ExceptionHandler interface declares this parameter raw
     public HttpResponse<ApiError> handle(HttpRequest request, TrackingException e) {
         if (e.getStatus().getCode() >= 500) {
             // Include the underlying cause (e.g. timeout, connection refused, upstream status) so outages are diagnosable.

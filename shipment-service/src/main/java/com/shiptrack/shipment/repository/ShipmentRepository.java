@@ -23,6 +23,8 @@ public interface ShipmentRepository extends JpaRepository<Shipment, Long> {
 
     Page<Shipment> findByStatus(ShipmentStatus status, Pageable pageable);
 
+    Page<Shipment> findByStatusAndDriverIdIsNull(ShipmentStatus status, Pageable pageable);
+
     Optional<Shipment> findByCustomerIdAndIdempotencyKey(Long customerId, String idempotencyKey);
 
     Optional<Shipment> findByTrackingCode(String trackingCode);

@@ -26,8 +26,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
 
 @ExtendWith(MockitoExtension.class)
@@ -101,6 +104,41 @@ class InvoiceRequesterTest {
         verify(shipments).markInvoiced(1L);
         verify(shipments, never()).markInvoiced(2L);
         verify(shipments, never()).findById(3L);
+    }
+
+    @Test
+    void shipmentRejectedByBillingDoesNotBlockTheOnesBehindIt() {
+        when(shipments.findUninvoicedDeliveredIds(any())).thenReturn(List.of(1L, 2L));
+        stubDelivered(1L);
+        stubDelivered(2L);
+        doThrow(HttpClientErrorException.create(HttpStatus.CONFLICT, "conflict", HttpHeaders.EMPTY, new byte[0], null))
+                .doNothing().when(billingClient).createInvoice(any());
+
+        requester.retryPendingInvoices();
+
+        verify(shipments, never()).markInvoiced(1L);
+        verify(shipments).markInvoiced(2L);
+    }
+
+    @Test
+    void retryJobDoesNothingWhenNothingIsPending() {
+        when(shipments.findUninvoicedDeliveredIds(any())).thenReturn(List.of());
+
+        requester.retryPendingInvoices();
+
+        verify(billingClient, never()).createInvoice(any());
+    }
+
+    @Test
+    void stopsRetryingWhenTheThreadIsInterrupted() {
+        stubDelivered(1L);
+        doThrow(new ResourceAccessException("down")).when(billingClient).createInvoice(any());
+        Thread.currentThread().interrupt();
+
+        requester.onDelivered(new ShipmentDeliveredEvent(1L));
+
+        assertThat(Thread.interrupted()).isTrue(); // the flag is kept for whoever runs this thread (and cleared here)
+        verify(billingClient, times(1)).createInvoice(any());
     }
 
     @Test

@@ -4,6 +4,7 @@ import com.shiptrack.shipment.entity.Shipment;
 import com.shiptrack.shipment.entity.ShipmentStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
+import java.time.LocalDate;
 
 public record ShipmentResponse(
         @Schema(example = "42") Long id,
@@ -23,7 +24,10 @@ public record ShipmentResponse(
         @Schema(description = "Send back as expectedVersion to detect concurrent edits", example = "3") long version,
         @Schema(example = "2026-11-04T09:30:00Z") Instant createdAt,
         @Schema(example = "2026-11-04T12:10:00Z") Instant updatedAt,
-        @Schema(example = "2026-11-05T15:45:00Z", nullable = true) Instant deliveredAt) {
+        @Schema(example = "2026-11-05T15:45:00Z", nullable = true) Instant deliveredAt,
+        @Schema(example = "Bilal Ahmed", nullable = true) String driverName,
+        @Schema(example = "+92 311 7654321", nullable = true) String driverPhone,
+        @Schema(example = "2026-11-12", nullable = true) LocalDate expectedDeliveryDate) {
 
     public static ShipmentResponse from(Shipment s) {
         return new ShipmentResponse(
@@ -31,6 +35,7 @@ public record ShipmentResponse(
                 s.getSenderName(), s.getSenderPhone(), s.getPickupAddress(),
                 s.getReceiverName(), s.getReceiverPhone(), s.getDeliveryAddress(),
                 s.getWeightKg().toPlainString(), s.getDescription(), s.isInvoiced(), s.getVersion(),
-                s.getCreatedAt(), s.getUpdatedAt(), s.getDeliveredAt());
+                s.getCreatedAt(), s.getUpdatedAt(), s.getDeliveredAt(),
+                s.getDriverName(), s.getDriverPhone(), s.getExpectedDeliveryDate());
     }
 }

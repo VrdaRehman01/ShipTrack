@@ -65,14 +65,6 @@ public class ShipmentStatusChange {
         this.changedAt = changedAt.truncatedTo(ChronoUnit.SECONDS);
     }
 
-    public Long getId() {
-        return id;
-    }
-
-    public Long getShipmentId() {
-        return shipmentId;
-    }
-
     public ShipmentStatus getFromStatus() {
         return fromStatus;
     }

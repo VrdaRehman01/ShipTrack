@@ -30,6 +30,7 @@ import com.shiptrack.shipment.service.InvoiceRequester;
 import io.jsonwebtoken.Jwts;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Date;
 import java.util.Optional;
 import java.util.UUID;
@@ -82,7 +83,87 @@ class ShipmentApiIntegrationTest {
         customer = token(customerId, Role.CUSTOMER);
         driver = token(driverId, Role.DRIVER);
         when(authClient.findUser(driverId))
-                .thenReturn(Optional.of(new AuthClient.UserView(driverId, "d@x.com", "Bilal Ahmed", Role.DRIVER)));
+                .thenReturn(Optional.of(new AuthClient.UserView(driverId, "d@x.com", "Bilal Ahmed", Role.DRIVER, "+92 311 7654321")));
+        when(authClient.currentUser())
+                .thenReturn(new AuthClient.UserView(driverId, "d@x.com", "Bilal Ahmed", Role.DRIVER, "+92 311 7654321"));
+    }
+
+    @Test
+    void driverSeesAnOpenParcelWithoutPersonalDataAcceptsItAndTheCustomerSeesWhoIsComing() throws Exception {
+        long id = create(customer);
+
+        String jobs = mockMvc.perform(get("/api/v1/shipments/available").param("size", "100")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(driver)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[?(@.id == %d)].pickupAddress".formatted(id)).value("F-7/2, Islamabad"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(jobs).doesNotContain("Sara Ahmed", "+92 300 1234567", "Ali Khan", "+92 321 7654321");
+
+        String tomorrow = LocalDate.now().plusDays(1).toString();
+        mockMvc.perform(post("/api/v1/shipments/{id}/accept", id).header(HttpHeaders.AUTHORIZATION, bearer(driver))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"expectedDeliveryDate\":\"" + tomorrow + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.driverId").value(driverId));
+
+        mockMvc.perform(get("/api/v1/shipments/{id}", id).header(HttpHeaders.AUTHORIZATION, bearer(customer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.driverName").value("Bilal Ahmed"))
+                .andExpect(jsonPath("$.driverPhone").value("+92 311 7654321"))
+                .andExpect(jsonPath("$.expectedDeliveryDate").value(tomorrow));
+
+        mockMvc.perform(get("/api/v1/shipments/available").param("size", "100").header(HttpHeaders.AUTHORIZATION, bearer(driver)))
+                .andExpect(jsonPath("$.content[?(@.id == %d)]".formatted(id)).isEmpty());
+    }
+
+    @Test
+    void aDriverCanGiveBackAParcelBeforePickupSoAnotherCanTakeIt() throws Exception {
+        long id = create(customer);
+        String other = token(IDS.incrementAndGet(), Role.DRIVER);
+        mockMvc.perform(post("/api/v1/shipments/{id}/accept", id).header(HttpHeaders.AUTHORIZATION, bearer(driver)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/shipments/{id}/release", id).header(HttpHeaders.AUTHORIZATION, bearer(other)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/v1/shipments/{id}/release", id).header(HttpHeaders.AUTHORIZATION, bearer(driver)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.driverId").doesNotExist())
+                .andExpect(jsonPath("$.driverName").doesNotExist());
+
+        mockMvc.perform(post("/api/v1/shipments/{id}/accept", id).header(HttpHeaders.AUTHORIZATION, bearer(other)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void aCollectedParcelCannotBeGivenBack() throws Exception {
+        long id = create(customer);
+        assign(id);
+        patchStatus(driver, id, "PICKED_UP").andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/shipments/{id}/release", id).header(HttpHeaders.AUTHORIZATION, bearer(driver)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("CANNOT_RELEASE_JOB"));
+    }
+
+    @Test
+    void aParcelCanOnlyBeAcceptedOnce() throws Exception {
+        long id = create(customer);
+        String other = token(IDS.incrementAndGet(), Role.DRIVER);
+
+        mockMvc.perform(post("/api/v1/shipments/{id}/accept", id).header(HttpHeaders.AUTHORIZATION, bearer(driver)))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/shipments/{id}/accept", id).header(HttpHeaders.AUTHORIZATION, bearer(other)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("JOB_TAKEN"));
+    }
+
+    @Test
+    void onlyDriversCanSeeOrAcceptOpenParcels() throws Exception {
+        long id = create(customer);
+
+        mockMvc.perform(get("/api/v1/shipments/available").header(HttpHeaders.AUTHORIZATION, bearer(customer)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/v1/shipments/{id}/accept", id).header(HttpHeaders.AUTHORIZATION, bearer(admin)))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -146,6 +227,16 @@ class ShipmentApiIntegrationTest {
         doNothing().when(billingClient).createInvoice(any());
         invoiceRequester.retryPendingInvoices();
         assertThat(shipments.findById(id).orElseThrow().isInvoiced()).isTrue();
+    }
+
+    @Test
+    void ownerCanOpenTheirShipment() throws Exception {
+        long id = create(customer);
+
+        mockMvc.perform(get("/api/v1/shipments/{id}", id).header(HttpHeaders.AUTHORIZATION, bearer(customer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id))
+                .andExpect(jsonPath("$.status").value("CREATED"));
     }
 
     @Test

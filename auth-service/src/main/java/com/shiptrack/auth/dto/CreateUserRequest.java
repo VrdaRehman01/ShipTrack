@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 @Schema(description = "Admin-only: create a user with any role (e.g. a DRIVER).")
@@ -23,5 +24,10 @@ public record CreateUserRequest(
 
         @Schema(example = "DRIVER")
         @NotNull
-        Role role) {
+        Role role,
+
+        @Schema(example = "+92 300 1234567", description = "Optional. Customers see a driver's number once the driver has their parcel.",
+                nullable = true)
+        @Pattern(regexp = "^\\+?[0-9][0-9 \\-]{6,18}$", message = "must be a phone number like +92 300 1234567")
+        String phone) {
 }

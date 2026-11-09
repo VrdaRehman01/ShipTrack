@@ -14,5 +14,7 @@ public record JwtProperties(
         // HS256 needs at least 256 bits = 32 bytes.
         @NotBlank @Size(min = 32, message = "must be at least 32 characters") String secret,
         @DefaultValue("15m") Duration expiration,
-        @DefaultValue("shiptrack-auth") String issuer) {
+        @DefaultValue("shiptrack-auth") String issuer,
+        // How long after logging in a session can keep being renewed; then a new login is required.
+        @DefaultValue("8h") Duration maxSession) {
 }

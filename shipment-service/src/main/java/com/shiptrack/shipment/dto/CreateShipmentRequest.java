@@ -22,6 +22,7 @@ public record CreateShipmentRequest(
         BigDecimal weightKg,
         @Schema(example = "Books, fragile") @Size(max = 255) String description) {
 
-    static final String PHONE = "^\\+?[0-9][0-9 \\-]{6,19}$";
+    // At most 20 characters in total, the size of the database column.
+    static final String PHONE = "^\\+?[0-9][0-9 \\-]{6,18}$";
     static final String PHONE_MESSAGE = "must be a phone number like +92 300 1234567";
 }

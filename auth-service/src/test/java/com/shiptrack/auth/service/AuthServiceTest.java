@@ -2,6 +2,8 @@ package com.shiptrack.auth.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -14,6 +16,8 @@ import com.shiptrack.common.security.Role;
 import com.shiptrack.auth.entity.User;
 import com.shiptrack.auth.exception.InvalidCredentialsException;
 import com.shiptrack.auth.repository.UserRepository;
+import com.shiptrack.common.error.ApiException;
+import com.shiptrack.common.error.CommonErrorCode;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -86,6 +90,38 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.login(new LoginRequest("nobody@example.com", "whatever")))
                 .isInstanceOf(InvalidCredentialsException.class)
                 .hasMessage("Email or password is incorrect");
+        // The slow hash still ran, so an unknown email takes as long as a wrong password.
+        verify(passwordEncoder).matches(eq("whatever"), any());
+    }
+
+    @Test
+    void refreshReturnsARenewedTokenWithItsActualLifetime() {
+        User user = user();
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+        when(jwtService.renew(user, "old")).thenReturn(Optional.of(new JwtService.Renewal("new", 300L)));
+
+        AuthResponse response = authService.refresh(7L, "old");
+
+        assertThat(response.accessToken()).isEqualTo("new");
+        assertThat(response.expiresIn()).isEqualTo(300L);
+    }
+
+    @Test
+    void refreshIsRefusedWhenTheSessionLimitIsReached() {
+        User user = user();
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+        when(jwtService.renew(user, "old")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.refresh(7L, "old"))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getCode()).isEqualTo(CommonErrorCode.UNAUTHORIZED));
+    }
+
+    @Test
+    void refreshIsRefusedForADeletedUser() {
+        when(userRepository.findById(7L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.refresh(7L, "old"))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getCode()).isEqualTo(CommonErrorCode.UNAUTHORIZED));
     }
 
     private static User user() {

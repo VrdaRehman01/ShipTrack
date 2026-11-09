@@ -14,6 +14,7 @@ import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -34,6 +35,15 @@ public class Shipment {
 
     @Column(name = "driver_id")
     private Long driverId;
+
+    @Column(name = "driver_name", length = 100)
+    private String driverName;
+
+    @Column(name = "driver_phone", length = 20)
+    private String driverPhone;
+
+    @Column(name = "expected_delivery_date")
+    private LocalDate expectedDeliveryDate;
 
     @Column(name = "sender_name", nullable = false, length = 100)
     private String senderName;
@@ -131,8 +141,22 @@ public class Shipment {
         this.idempotencyFingerprint = fingerprint;
     }
 
-    public void assignDriver(Long newDriverId) {
+    /** A null date keeps any date already promised. */
+    public void assignDriver(Long newDriverId, String newDriverName, String newDriverPhone, LocalDate expectedDelivery) {
         this.driverId = newDriverId;
+        this.driverName = newDriverName;
+        this.driverPhone = newDriverPhone;
+        if (expectedDelivery != null) {
+            this.expectedDeliveryDate = expectedDelivery;
+        }
+    }
+
+    /** Back to waiting for a driver. The date was that driver's promise, so it goes too. */
+    public void releaseDriver() {
+        this.driverId = null;
+        this.driverName = null;
+        this.driverPhone = null;
+        this.expectedDeliveryDate = null;
     }
 
     /** Callers check the transition is allowed first (ShipmentService owns the rules). */
@@ -167,6 +191,18 @@ public class Shipment {
 
     public Long getDriverId() {
         return driverId;
+    }
+
+    public String getDriverName() {
+        return driverName;
+    }
+
+    public String getDriverPhone() {
+        return driverPhone;
+    }
+
+    public LocalDate getExpectedDeliveryDate() {
+        return expectedDeliveryDate;
     }
 
     public String getSenderName() {

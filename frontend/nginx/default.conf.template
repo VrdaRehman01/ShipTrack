@@ -15,6 +15,16 @@ map $fwd_proto $hsts {
     https   "max-age=31536000";
     default "";
 }
+# The visitor's address. Behind CloudFront $remote_addr is only the edge server, so limits would be shared by everyone.
+map $http_cloudfront_viewer_address $client_ip {
+    default $remote_addr;
+    "~^(?<viewer_ip>.+):[0-9]+$" $viewer_ip;
+}
+# Login and sign-up are limited to slow password guessing, and because each attempt runs a deliberately slow BCrypt hash.
+limit_req_zone $client_ip zone=auth:10m rate=10r/m;
+# Tracking codes are sequential; this makes walking through them impractical.
+limit_req_zone $client_ip zone=tracking:10m rate=120r/m;
+limit_req_status 429;
 
 server {
     listen 80;
@@ -25,29 +35,45 @@ server {
     resolver 127.0.0.11 valid=10s ipv6=off;
     set $gateway http://${API_GATEWAY};
 
+    # Shared by every proxied location below.
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $fwd_proto;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Port $fwd_port;
+    proxy_read_timeout 30s;
+    client_max_body_size 1m;
+
+    # Same JSON shape as every other API error, so the web app can show the message.
+    error_page 429 @too_many_requests;
+    location @too_many_requests {
+        internal;
+        default_type application/json;
+        return 429 '{"status":429,"error":"TOO_MANY_REQUESTS","message":"Too many attempts. Wait a minute and try again."}';
+    }
+
     location = /healthz {
         access_log off;
         default_type text/plain;
         return 200 "ok\n";
     }
 
+    # Regex locations are tried in order, so the rate-limited paths come before the general API rule.
+    location ~ ^/api/v1/auth/(login|register)$ {
+        limit_req zone=auth burst=10 nodelay;
+        proxy_pass $gateway;
+    }
+    location ~ ^/api/v1/public/ {
+        limit_req zone=tracking burst=30 nodelay;
+        proxy_pass $gateway;
+    }
+
     # API, Swagger and gateway health -> gateway (path passed through unchanged).
     location ~ ^/(api|docs|v3/api-docs|swagger-ui|actuator)(/|$) {
         proxy_pass $gateway;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $fwd_proto;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-Port $fwd_port;
-        proxy_read_timeout 30s;
-        client_max_body_size 1m;
     }
     location = /swagger-ui.html {
         proxy_pass $gateway;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $fwd_proto;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-Port $fwd_port;
     }
 
     # Hashed build files never change: cache them for a year.

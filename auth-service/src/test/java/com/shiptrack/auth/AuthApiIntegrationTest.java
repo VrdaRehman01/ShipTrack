@@ -3,6 +3,7 @@ package com.shiptrack.auth;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -108,6 +109,31 @@ class AuthApiIntegrationTest {
     }
 
     @Test
+    void refreshSwapsAValidTokenForOneThatWorks() throws Exception {
+        String email = uniqueEmail();
+        register(email);
+        String token = login(email, "S3cure-pass!");
+
+        String body = mockMvc.perform(post("/api/v1/auth/refresh").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.expiresIn").value(900))
+                .andExpect(jsonPath("$.user.email").value(email))
+                .andReturn().getResponse().getContentAsString();
+        String fresh = JsonPath.read(body, "$.accessToken");
+
+        mockMvc.perform(get("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + fresh))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(email));
+    }
+
+    @Test
+    void refreshNeedsAValidToken() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/refresh")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/v1/auth/refresh").header(HttpHeaders.AUTHORIZATION, "Bearer not.a.jwt"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void customerCannotCreateUsers() throws Exception {
         String email = uniqueEmail();
         register(email);
@@ -155,6 +181,88 @@ class AuthApiIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void adminCanSaveADriversPhoneAndABadOneIsRejected() throws Exception {
+        String adminToken = login("admin@shiptrack.test", "Admin-pass-123");
+
+        mockMvc.perform(post("/api/v1/users").header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"%s","password":"Dr1ver-pass!","fullName":"Bilal","role":"DRIVER","phone":"+92 300 1234567"}"""
+                                .formatted(uniqueEmail())))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.phone").value("+92 300 1234567"));
+
+        mockMvc.perform(post("/api/v1/users").header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"%s","password":"Dr1ver-pass!","fullName":"Bilal","role":"DRIVER","phone":"call me"}"""
+                                .formatted(uniqueEmail())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message", containsString("phone")));
+    }
+
+    private String firstAdminId(String adminToken) throws Exception {
+        String list = mockMvc.perform(get("/api/v1/users").param("role", "ADMIN")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
+                .andReturn().getResponse().getContentAsString();
+        return String.valueOf((Integer) JsonPath.read(list, "$.content[0].id"));
+    }
+
+    @Test
+    void adminCanAddAPhoneToAnExistingPersonAndRemoveIt() throws Exception {
+        String adminToken = login("admin@shiptrack.test", "Admin-pass-123");
+        String id = firstAdminId(adminToken);
+
+        mockMvc.perform(patch("/api/v1/users/{id}", id).header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fullName\":\" ShipTrack Admin \",\"phone\":\"+92 300 1234567\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fullName").value("ShipTrack Admin"))
+                .andExpect(jsonPath("$.phone").value("+92 300 1234567"));
+        mockMvc.perform(get("/api/v1/users/{id}", id).header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
+                .andExpect(jsonPath("$.phone").value("+92 300 1234567"));
+
+        mockMvc.perform(patch("/api/v1/users/{id}", id).header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"fullName\":\"ShipTrack Admin\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.phone").doesNotExist());
+    }
+
+    @Test
+    void editingPeopleIsValidatedAndAdminOnly() throws Exception {
+        String adminToken = login("admin@shiptrack.test", "Admin-pass-123");
+        String email = uniqueEmail();
+        register(email);
+        String customerToken = login(email, "S3cure-pass!");
+        String body = "{\"fullName\":\"Someone\"}";
+
+        mockMvc.perform(patch("/api/v1/users/{id}", 1).header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(patch("/api/v1/users/{id}", 999_999).header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(patch("/api/v1/users/{id}", 1).header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"fullName\":\"\",\"phone\":\"nope\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void adminCanOpenAnyUser() throws Exception {
+        String adminToken = login("admin@shiptrack.test", "Admin-pass-123");
+        String list = mockMvc.perform(get("/api/v1/users").param("role", "ADMIN")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
+                .andReturn().getResponse().getContentAsString();
+        Integer id = JsonPath.read(list, "$.content[0].id");
+
+        mockMvc.perform(get("/api/v1/users/{id}", id).header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("ADMIN"));
+        mockMvc.perform(get("/api/v1/users/{id}", 999_999).header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
+                .andExpect(status().isNotFound());
     }
 
     @Test

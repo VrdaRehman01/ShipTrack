@@ -38,10 +38,14 @@ Parameters:
     Description: >
       4 GB RAM is the minimum for 5 JVM services + MySQL. c7i-flex.large (4 GB) and m7i-flex.large (8 GB) are
       free-tier eligible on AWS Free plan accounts; t3.* are not.
-  AllowedHttpCidr:
+  CloudFrontPrefixListId:
     Type: String
-    Default: 0.0.0.0/0
-    Description: Who can reach the API on port 80. Narrow it to your own IP (x.x.x.x/32) if you like.
+    Default: pl-b8a742d1
+    AllowedPattern: "^pl-[0-9a-f]+$"
+    Description: >
+      AWS's list of CloudFront addresses in this region (the default is Sydney's), the only addresses allowed to
+      reach port 80. Find it with: aws ec2 describe-managed-prefix-lists
+      --filters Name=prefix-list-name,Values=com.amazonaws.global.cloudfront.origin-facing
   AdminEmail:
     Type: String
     Default: admin@shiptrack.demo
@@ -152,12 +156,14 @@ Resources:
   SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
+      # Don't edit the description: changing it makes CloudFormation replace the security group.
       GroupDescription: ShipTrack website and API on port 80 only (no SSH; use SSM Session Manager)
+      # CloudFront only, so nobody can use the site over plain http or get around its rate limits.
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: !Ref AllowedHttpCidr
+          SourcePrefixListId: !Ref CloudFrontPrefixListId
 
   Instance:
     Type: AWS::EC2::Instance
@@ -374,7 +380,7 @@ Outputs:
   SwaggerUrl:
     Value: !Sub "https://${Distribution.DomainName}/swagger-ui.html"
   ServerIp:
-    Description: Fixed public IP of the server (plain http, for debugging).
+    Description: Fixed public IP of the server. Only CloudFront can reach it; use Session Manager for a shell.
     Value: !Ref ElasticIp
   InstanceId:
     Description: The EC2 instance (the deploy finds it by its shiptrack-prod tag).

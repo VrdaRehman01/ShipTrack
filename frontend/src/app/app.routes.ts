@@ -11,6 +11,10 @@ export const routes: Routes = [
     path: '',
     canActivate: [authGuard],
     children: [
+      {
+        path: 'driver', canActivate: [roleGuard('DRIVER')],
+        loadComponent: () => import('./pages/driver.page').then((m) => m.DriverPage), title: 'Your jobs - ShipTrack',
+      },
       { path: 'shipments', loadComponent: () => import('./pages/shipments.page').then((m) => m.ShipmentsPage), title: 'Shipments - ShipTrack' },
       {
         path: 'shipments/new', canActivate: [roleGuard('CUSTOMER')],

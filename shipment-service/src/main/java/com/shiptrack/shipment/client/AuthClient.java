@@ -19,7 +19,7 @@ import org.springframework.web.client.RestClient;
 @Component
 public class AuthClient {
 
-    public record UserView(Long id, String email, String fullName, Role role) {
+    public record UserView(Long id, String email, String fullName, Role role, String phone) {
     }
 
     private final RestClient restClient;
@@ -30,10 +30,19 @@ public class AuthClient {
 
     /** Empty if the user doesn't exist. */
     public Optional<UserView> findUser(Long userId) {
+        return fetch("/api/v1/users/" + userId);
+    }
+
+    /** The logged-in caller's own details (anyone may read their own). */
+    public UserView currentUser() {
+        return fetch("/api/v1/users/me").orElseThrow(() -> ApiException.forbidden("Your account no longer exists"));
+    }
+
+    private Optional<UserView> fetch(String path) {
         String token = CurrentUser.bearerToken().orElseThrow(() -> ApiException.forbidden("No caller token to forward"));
         try {
             return Optional.ofNullable(restClient.get()
-                    .uri("/api/v1/users/{id}", userId)
+                    .uri(path)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                     .retrieve()
                     .body(UserView.class));

@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { Api, describeError } from '../core/api';
 import { AuthService } from '../core/auth.service';
 import { Invoice, Page } from '../core/models';
@@ -91,14 +92,19 @@ export class InvoicesPage {
   protected readonly message = signal<string | null>(null);
   protected readonly isError = signal(false);
   protected readonly busy = signal<number | null>(null);
+  private loading?: Subscription;
 
   constructor() { this.load(0); }
 
   protected filter(v: '' | 'ISSUED' | 'PAID'): void { this.status.set(v); this.load(0); }
 
   protected load(page: number): void {
-    this.api.invoices(this.status(), page).subscribe({
-      next: (p) => this.page.set(p),
+    this.loading?.unsubscribe(); // a slow earlier filter must not overwrite this one
+    this.loading = this.api.invoices(this.status(), page).subscribe({
+      next: (p) => {
+        this.page.set(p);
+        if (this.isError()) { this.message.set(null); this.isError.set(false); } // it worked, so the old error no longer applies
+      },
       error: (err) => { this.message.set(describeError(err)); this.isError.set(true); },
     });
   }

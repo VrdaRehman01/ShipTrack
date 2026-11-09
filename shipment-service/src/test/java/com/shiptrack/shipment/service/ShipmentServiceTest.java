@@ -23,6 +23,7 @@ import com.shiptrack.shipment.repository.ShipmentStatusChangeRepository;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -174,22 +175,44 @@ class ShipmentServiceTest {
     @Test
     void assignDriverChecksRoleWithAuthService() {
         stub(shipment(ShipmentStatus.CREATED, null));
-        when(authClient.findUser(5L)).thenReturn(Optional.of(new AuthClient.UserView(5L, "c@x.com", "C", Role.CUSTOMER)));
-        assertThatThrownBy(() -> service.assignDriver(ADMIN, 42L, 5L))
+        when(authClient.findUser(5L)).thenReturn(Optional.of(new AuthClient.UserView(5L, "c@x.com", "C", Role.CUSTOMER, null)));
+        assertThatThrownBy(() -> service.assignDriver(ADMIN, 42L, 5L, null))
                 .satisfies(e -> assertCode(e, ShipmentErrorCode.INVALID_DRIVER))
                 .hasMessageContaining("is a CUSTOMER");
 
         when(authClient.findUser(6L)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.assignDriver(ADMIN, 42L, 6L)).satisfies(e -> assertCode(e, ShipmentErrorCode.INVALID_DRIVER));
+        assertThatThrownBy(() -> service.assignDriver(ADMIN, 42L, 6L, null))
+                .satisfies(e -> assertCode(e, ShipmentErrorCode.INVALID_DRIVER));
 
-        when(authClient.findUser(10L)).thenReturn(Optional.of(new AuthClient.UserView(10L, "d@x.com", "D", Role.DRIVER)));
-        assertThat(service.assignDriver(ADMIN, 42L, 10L).driverId()).isEqualTo(10L);
+        when(authClient.findUser(10L))
+                .thenReturn(Optional.of(new AuthClient.UserView(10L, "d@x.com", "D", Role.DRIVER, "+92 311 7654321")));
+        var assigned = service.assignDriver(ADMIN, 42L, 10L, LocalDate.parse("2026-11-12"));
+        assertThat(assigned.driverId()).isEqualTo(10L);
+        assertThat(assigned.driverName()).isEqualTo("D");
+        assertThat(assigned.driverPhone()).isEqualTo("+92 311 7654321");
+        assertThat(assigned.expectedDeliveryDate()).isEqualTo("2026-11-12");
+    }
+
+    @Test
+    void reassigningWithoutADateKeepsTheOnePromised() {
+        stub(shipment(ShipmentStatus.CREATED, null));
+        when(authClient.findUser(10L)).thenReturn(Optional.of(new AuthClient.UserView(10L, "d@x.com", "D", Role.DRIVER, null)));
+        service.assignDriver(ADMIN, 42L, 10L, LocalDate.parse("2026-11-12"));
+
+        assertThat(service.assignDriver(ADMIN, 42L, 10L, null).expectedDeliveryDate()).isEqualTo("2026-11-12");
+    }
+
+    @Test
+    void aDeliveryDateInThePastIsRejected() {
+        assertThatThrownBy(() -> service.assignDriver(ADMIN, 42L, 10L, LocalDate.parse("2026-11-01")))
+                .satisfies(e -> assertCode(e, CommonErrorCode.VALIDATION_FAILED));
     }
 
     @Test
     void cannotAssignDriverToClosedShipment() {
         stub(shipment(ShipmentStatus.DELIVERED, 10L));
-        assertThatThrownBy(() -> service.assignDriver(ADMIN, 42L, 10L)).satisfies(e -> assertCode(e, ShipmentErrorCode.SHIPMENT_CLOSED));
+        assertThatThrownBy(() -> service.assignDriver(ADMIN, 42L, 10L, null))
+                .satisfies(e -> assertCode(e, ShipmentErrorCode.SHIPMENT_CLOSED));
         verify(authClient, never()).findUser(any());
     }
 
@@ -239,7 +262,7 @@ class ShipmentServiceTest {
         ReflectionTestUtils.setField(s, "status", status);
         ReflectionTestUtils.setField(s, "createdAt", Instant.parse("2026-11-04T09:00:00Z"));
         if (driverId != null) {
-            s.assignDriver(driverId);
+            s.assignDriver(driverId, "Bilal", "+92 311 7654321", null);
         }
         return s;
     }

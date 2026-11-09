@@ -1,10 +1,12 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { forkJoin, of, catchError } from 'rxjs';
+import { forkJoin, of, catchError, retry, throwError, timer } from 'rxjs';
 import { Api, describeError, errorCode } from '../core/api';
 import { isSecureContextAvailable } from '../core/ids';
+import { callLink } from '../core/links';
 import { AuthService } from '../core/auth.service';
 import { Invoice, Location, Shipment, ShipmentStatus, StatusChange, User } from '../core/models';
 import { MOVE_LABEL, STATUS_LABEL, movesFor } from '../core/status';
@@ -13,13 +15,17 @@ import { RouteLineComponent } from '../shared/route-line.component';
 import { TrackingCodeComponent } from '../shared/tracking-code.component';
 
 const AUTO_SHARE_MS = 60_000;
+// Billing creates the invoice just after delivery, so keep checking for a minute rather than making people reload.
+const INVOICE_POLL_MS = 3_000;
+const INVOICE_POLLS = 20;
+const LIVE_UPDATE_MS = 30_000;
 
 @Component({
   selector: 'st-shipment-page',
   imports: [DatePipe, FormsModule, RouterLink, RouteLineComponent, TrackingCodeComponent, LocationMapComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <a class="back" routerLink="/shipments">Back to {{ auth.role() === 'DRIVER' ? 'my deliveries' : 'shipments' }}</a>
+    <a class="back" [routerLink]="auth.home()">Back to {{ auth.role() === 'DRIVER' ? 'your jobs' : 'shipments' }}</a>
 
     @if (loadError()) {
       <p class="notice notice-error" role="alert">{{ loadError() }}</p>
@@ -77,6 +83,10 @@ const AUTO_SHARE_MS = 60_000;
                   <span class="hint">No drivers yet. Add one under <a routerLink="/admin/users">People</a>.</span>
                 }
               </div>
+              <div class="field">
+                <label for="expected">Expected delivery (optional)</label>
+                <input id="expected" name="expected" type="date" [(ngModel)]="expectedDate" />
+              </div>
               <button class="btn" type="submit" [disabled]="busy() || chosenDriver === null">{{ s.driverId ? 'Change driver' : 'Assign driver' }}</button>
             </form>
           }
@@ -100,7 +110,16 @@ const AUTO_SHARE_MS = 60_000;
             <dt>From</dt><dd>{{ s.senderName }}, {{ s.senderPhone }}<br />{{ s.pickupAddress }}</dd>
             <dt>To</dt><dd>{{ s.receiverName }}, {{ s.receiverPhone }}<br />{{ s.deliveryAddress }}</dd>
             <dt>Parcel</dt><dd>{{ kg(s.weightKg) }} kg{{ s.description ? ', ' + s.description : '' }}</dd>
-            <dt>Driver</dt><dd>{{ driverName(s) }}</dd>
+            <dt>Driver</dt>
+            <dd>
+              {{ driverName(s) }}
+              @if (s.driverPhone && auth.role() !== 'DRIVER') {
+                <br /><a [href]="call(s.driverPhone)">Call {{ s.driverPhone }}</a>
+              }
+            </dd>
+            @if (s.expectedDeliveryDate && s.status !== 'DELIVERED' && s.status !== 'CANCELLED') {
+              <dt>Expected</dt><dd>{{ s.expectedDeliveryDate | date: 'EEEE d MMMM' }}</dd>
+            }
           </dl>
         </section>
       </div>
@@ -173,6 +192,7 @@ export class ShipmentPage {
 
   protected readonly auth = inject(AuthService);
   private readonly api = inject(Api);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly shipment = signal<Shipment | null>(null);
   protected readonly history = signal<StatusChange[]>([]);
@@ -185,6 +205,7 @@ export class ShipmentPage {
   protected readonly busy = signal(false);
   protected readonly autoShare = signal(false);
   protected chosenDriver: number | null = null;
+  protected expectedDate = '';
   private autoTimer: ReturnType<typeof setInterval> | null = null;
 
   protected readonly timeline = computed(() => this.history().map((h) => ({ status: h.toStatus, at: h.changedAt })));
@@ -210,11 +231,40 @@ export class ShipmentPage {
     this.shipment()?.status === 'DELIVERED' && (this.auth.role() === 'ADMIN' || this.isOwner()));
 
   constructor() {
-    effect(() => this.load(Number(this.id())));
+    // untracked: only a new id should reload, not the signals the HTTP call happens to read (logging out, say).
+    effect(() => {
+      const id = Number(this.id());
+      untracked(() => this.load(id));
+    });
     if (this.auth.role() === 'ADMIN') {
       this.api.users('DRIVER', 0, 100).subscribe({ next: (p) => this.drivers.set(p.content) });
     }
-    inject(DestroyRef).onDestroy(() => this.stopAutoShare());
+    this.destroyRef.onDestroy(() => this.stopAutoShare());
+    // The driver is the one making the changes, so only the people following along need live updates.
+    if (this.auth.role() !== 'DRIVER') {
+      timer(LIVE_UPDATE_MS, LIVE_UPDATE_MS).pipe(takeUntilDestroyed()).subscribe(() => this.liveUpdate());
+    }
+  }
+
+  protected call(phone: string): string { return callLink(phone); }
+
+  /** Skips hidden tabs and finished parcels. Marked as background, so watching a page doesn't keep a session alive. */
+  private liveUpdate(): void {
+    const current = this.shipment();
+    if (!current || current.status === 'DELIVERED' || current.status === 'CANCELLED' || document.hidden || this.busy()) return;
+    forkJoin({
+      shipment: this.api.shipment(current.id, true),
+      history: this.api.history(current.id, true),
+      location: this.api.latestLocation(current.id, true).pipe(catchError(() => of(null))),
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: ({ shipment, history, location }) => {
+        this.shipment.set(shipment);
+        this.history.set(history);
+        this.location.set(location);
+        if (shipment.status === 'DELIVERED') this.refreshSideData(shipment); // starts looking for the invoice
+      },
+      error: () => undefined, // try again on the next round
+    });
   }
 
   protected statusLabel(s: ShipmentStatus): string { return STATUS_LABEL[s]; }
@@ -226,8 +276,7 @@ export class ShipmentPage {
   protected driverName(s: Shipment): string {
     if (!s.driverId) return 'Not assigned yet';
     if (s.driverId === this.auth.user()?.id) return 'You';
-    // Only admins can look drivers up; customers just need to know someone is on it.
-    return this.drivers().find((d) => d.id === s.driverId)?.fullName ?? 'Assigned';
+    return s.driverName ?? this.drivers().find((d) => d.id === s.driverId)?.fullName ?? 'Assigned';
   }
 
   protected move(next: ShipmentStatus): void {
@@ -245,7 +294,7 @@ export class ShipmentPage {
   protected assign(): void {
     const s = this.shipment();
     if (!s || this.chosenDriver === null) return;
-    this.run(this.api.assignDriver(s.id, this.chosenDriver), (updated) => {
+    this.run(this.api.assignDriver(s.id, this.chosenDriver, this.expectedDate || undefined), (updated) => {
       this.shipment.set(updated);
       this.say(`Driver ${this.driverName(updated)} assigned.`);
     });
@@ -276,7 +325,14 @@ export class ShipmentPage {
         next: (l) => { this.location.set(l); if (!quiet) this.say('Location shared.'); },
         error: (err) => this.say(describeError(err), true),
       }),
-      () => this.say('Location is blocked. Allow location for this site in your browser settings, then try again.', true),
+      (failure) => {
+        if (failure.code === failure.PERMISSION_DENIED) {
+          this.stopAutoShare(); // asking again every minute can't succeed until they change the setting
+          this.say('Location is blocked. Allow location for this site in your browser settings, then try again.', true);
+        } else {
+          this.say('Couldn’t get a GPS fix. Move somewhere with better signal and try again.', true);
+        }
+      },
       { enableHighAccuracy: true, timeout: 15_000, maximumAge: 30_000 },
     );
   }
@@ -285,7 +341,10 @@ export class ShipmentPage {
     this.autoShare.set(on);
     if (on) {
       this.shareLocation();
-      this.autoTimer = setInterval(() => this.shareLocation(true), AUTO_SHARE_MS);
+      // shareLocation turns this off when sharing is impossible; don't start a timer that can only fail.
+      if (this.autoShare()) {
+        this.autoTimer = setInterval(() => this.shareLocation(true), AUTO_SHARE_MS);
+      }
     } else {
       this.stopAutoShare();
     }
@@ -319,7 +378,11 @@ export class ShipmentPage {
       this.api.latestLocation(s.id).pipe(catchError(() => of(null))).subscribe((l) => this.location.set(l));
     }
     if (s.status === 'DELIVERED' && (this.auth.role() === 'ADMIN' || this.isOwner())) {
-      this.api.invoiceForShipment(s.id).pipe(catchError(() => of(null))).subscribe((i) => this.invoice.set(i));
+      this.api.invoiceForShipment(s.id).pipe(
+        retry({ count: INVOICE_POLLS, delay: (err) => (errorCode(err) === 'NOT_FOUND' ? timer(INVOICE_POLL_MS) : throwError(() => err)) }),
+        catchError(() => of(null)),
+        takeUntilDestroyed(this.destroyRef),
+      ).subscribe((i) => this.invoice.set(i));
     }
   }
 

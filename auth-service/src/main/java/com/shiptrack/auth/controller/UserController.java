@@ -1,6 +1,7 @@
 package com.shiptrack.auth.controller;
 
 import com.shiptrack.auth.dto.CreateUserRequest;
+import com.shiptrack.auth.dto.UpdateUserRequest;
 import com.shiptrack.auth.dto.UserResponse;
 import com.shiptrack.auth.entity.User;
 import com.shiptrack.auth.service.UserService;
@@ -22,6 +23,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -72,6 +74,17 @@ public class UserController {
         return UserResponse.from(userService.getById(id));
     }
 
+    @PatchMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Change someone's name or phone number (admin)")
+    @ApiResponse(responseCode = "403", description = "Not an admin",
+            content = @Content(schema = @Schema(implementation = ApiError.class)))
+    @ApiResponse(responseCode = "404", description = "No such user",
+            content = @Content(schema = @Schema(implementation = ApiError.class)))
+    public UserResponse update(@PathVariable Long id, @Valid @RequestBody UpdateUserRequest request) {
+        return UserResponse.from(userService.updateProfile(id, request.fullName(), request.phone()));
+    }
+
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Create a user with any role, e.g. a DRIVER (admin)")
@@ -81,7 +94,7 @@ public class UserController {
     @ApiResponse(responseCode = "409", description = "Email already registered",
             content = @Content(schema = @Schema(implementation = ApiError.class)))
     public ResponseEntity<UserResponse> create(@Valid @RequestBody CreateUserRequest request) {
-        User user = userService.createUser(request.email(), request.password(), request.fullName(), request.role());
+        User user = userService.createUser(request.email(), request.password(), request.fullName(), request.role(), request.phone());
         return ResponseEntity.created(URI.create("/api/v1/users/" + user.getId())).body(UserResponse.from(user));
     }
 }

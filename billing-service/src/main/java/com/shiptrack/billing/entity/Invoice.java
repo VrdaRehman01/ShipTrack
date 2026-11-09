@@ -149,8 +149,4 @@ public class Invoice {
     public Instant getPaidAt() {
         return paidAt;
     }
-
-    public long getVersion() {
-        return version;
-    }
 }

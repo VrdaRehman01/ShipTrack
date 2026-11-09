@@ -29,6 +29,7 @@ We have no domain name, so we can't get our own TLS certificate, and certificate
 - An Elastic IP costs about $3.60/month, including while the server is stopped (AWS charges for every public
   IPv4 address; the running server already paid this for its automatic IP). CloudFront stays within its
   always-free tier for a demo.
-- The server's port 80 is still reachable directly over plain http. That's useful for debugging, and the
-  deploy's smoke test uses it.
+- The server's port 80 accepts only CloudFront's addresses (AWS's managed prefix list), so nobody can reach the
+  site over plain http or get around its rate limits. The deploy's smoke test goes through CloudFront too, and
+  debugging on the server uses Session Manager.
 - A custom domain later only needs an ACM certificate (in us-east-1) and an alias on the distribution.

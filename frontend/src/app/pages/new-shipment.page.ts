@@ -88,7 +88,7 @@ export class NewShipmentPage {
   private readonly api = inject(Api);
   private readonly router = inject(Router);
 
-  protected readonly phone = '^\\+?[0-9][0-9 \\-]{6,19}$';
+  protected readonly phone = '^\\+?[0-9][0-9 \\-]{6,18}$';
   protected form: NewShipment = {
     senderName: '', senderPhone: '', pickupAddress: '',
     receiverName: '', receiverPhone: '', deliveryAddress: '',

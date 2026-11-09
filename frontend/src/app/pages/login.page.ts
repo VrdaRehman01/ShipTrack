@@ -12,7 +12,7 @@ import { AuthService } from '../core/auth.service';
     <section class="panel auth">
       <h1>Log in</h1>
       @if (reason() === 'expired') {
-        <p class="notice">For your security you were logged out after 15 minutes. Log in to continue.</p>
+        <p class="notice">For your security, your session has ended. Log in to pick up where you left off.</p>
       }
       @if (registered()) {
         <p class="notice">Your account is ready. Log in to send your first parcel.</p>
@@ -56,10 +56,10 @@ export class LoginPage {
     this.loading.set(true);
     this.error.set(null);
     this.auth.login(this.email, this.password).subscribe({
-      next: (res) => {
+      next: () => {
         const next = this.next();
         // Only follow in-app paths, never an outside URL.
-        const target = next && next.startsWith('/') && !next.startsWith('//') ? next : this.auth.homeFor(res.user.role);
+        const target = next && next.startsWith('/') && !next.startsWith('//') ? next : this.auth.home();
         void this.router.navigateByUrl(target);
       },
       error: (err) => {

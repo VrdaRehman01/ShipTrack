@@ -85,7 +85,8 @@ export class App {
         { label: 'Track a parcel', link: '/track' },
       ];
       case 'DRIVER': return [
-        { label: 'My deliveries', link: '/shipments' },
+        { label: 'Jobs', link: '/driver' },
+        { label: 'All deliveries', link: '/shipments' },
         { label: 'Track a parcel', link: '/track' },
       ];
       case 'CUSTOMER': return [

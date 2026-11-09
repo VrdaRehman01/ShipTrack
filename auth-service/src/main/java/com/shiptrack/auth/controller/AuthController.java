@@ -5,16 +5,21 @@ import com.shiptrack.auth.dto.LoginRequest;
 import com.shiptrack.auth.dto.RegisterRequest;
 import com.shiptrack.auth.dto.UserResponse;
 import com.shiptrack.auth.service.AuthService;
+import com.shiptrack.common.ShipTrackAutoConfiguration;
 import com.shiptrack.common.error.ApiError;
+import com.shiptrack.common.security.AuthenticatedUser;
+import com.shiptrack.common.security.CurrentUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.net.URI;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -51,5 +56,15 @@ public class AuthController {
             content = @Content(schema = @Schema(implementation = ApiError.class)))
     public AuthResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    @PostMapping("/refresh")
+    @SecurityRequirement(name = ShipTrackAutoConfiguration.BEARER_SCHEME)
+    @Operation(summary = "Swap a valid JWT for a fresh one, for up to 8 hours after logging in")
+    @ApiResponse(responseCode = "200", description = "New token issued")
+    @ApiResponse(responseCode = "401", description = "Token invalid or expired, or the session limit was reached",
+            content = @Content(schema = @Schema(implementation = ApiError.class)))
+    public AuthResponse refresh(@AuthenticationPrincipal AuthenticatedUser caller) {
+        return authService.refresh(caller.id(), CurrentUser.bearerToken().orElseThrow());
     }
 }

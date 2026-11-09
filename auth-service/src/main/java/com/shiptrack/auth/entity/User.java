@@ -38,6 +38,9 @@ public class User {
     @Column(nullable = false, length = 20)
     private Role role;
 
+    @Column(length = 20)
+    private String phone;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -46,10 +49,15 @@ public class User {
     }
 
     public User(String email, String passwordHash, String fullName, Role role) {
+        this(email, passwordHash, fullName, role, null);
+    }
+
+    public User(String email, String passwordHash, String fullName, Role role, String phone) {
         this.email = email;
         this.passwordHash = passwordHash;
         this.fullName = fullName;
         this.role = role;
+        this.phone = phone;
     }
 
     @PrePersist
@@ -57,6 +65,11 @@ public class User {
         if (createdAt == null) {
             createdAt = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         }
+    }
+
+    public void updateProfile(String newFullName, String newPhone) {
+        this.fullName = newFullName;
+        this.phone = newPhone;
     }
 
     public Long getId() {
@@ -77,6 +90,10 @@ public class User {
 
     public Role getRole() {
         return role;
+    }
+
+    public String getPhone() {
+        return phone;
     }
 
     public Instant getCreatedAt() {

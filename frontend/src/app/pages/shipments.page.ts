@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { Api, describeError } from '../core/api';
 import { AuthService } from '../core/auth.service';
 import { Page, Shipment, ShipmentStatus } from '../core/models';
@@ -122,6 +123,7 @@ export class ShipmentsPage {
   protected readonly status = signal<ShipmentStatus | ''>('');
   protected readonly page = signal<Page<Shipment> | null>(null);
   protected readonly error = signal<string | null>(null);
+  private loading?: Subscription;
 
   protected readonly heading = computed(() =>
     ({ CUSTOMER: 'My shipments', DRIVER: 'My deliveries', ADMIN: 'All shipments' } as const)[this.auth.role() ?? 'CUSTOMER']);
@@ -158,7 +160,8 @@ export class ShipmentsPage {
 
   protected load(page = this.page()?.page ?? 0): void {
     this.error.set(null);
-    this.api.shipments(this.status(), page).subscribe({
+    this.loading?.unsubscribe(); // a slow earlier filter must not overwrite this one
+    this.loading = this.api.shipments(this.status(), page).subscribe({
       next: (p) => this.page.set(p),
       error: (err) => this.error.set(describeError(err)),
     });

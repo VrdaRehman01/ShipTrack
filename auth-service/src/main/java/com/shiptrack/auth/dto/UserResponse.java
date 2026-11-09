@@ -10,10 +10,11 @@ public record UserResponse(
         @Schema(example = "ali.khan@example.com") String email,
         @Schema(example = "Ali Khan") String fullName,
         @Schema(example = "CUSTOMER") Role role,
+        @Schema(example = "+92 300 1234567", nullable = true) String phone,
         @Schema(example = "2026-11-04T09:30:00Z") Instant createdAt) {
 
     public static UserResponse from(User user) {
         return new UserResponse(
-                user.getId(), user.getEmail(), user.getFullName(), user.getRole(), user.getCreatedAt());
+                user.getId(), user.getEmail(), user.getFullName(), user.getRole(), user.getPhone(), user.getCreatedAt());
     }
 }

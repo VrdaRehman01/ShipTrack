@@ -16,12 +16,12 @@ export function roleGuard(...roles: Role[]): CanActivateFn {
     const auth = inject(AuthService);
     const role = auth.role();
     if (role && roles.includes(role)) return true;
-    return inject(Router).parseUrl(auth.homeFor(role));
+    return inject(Router).parseUrl(auth.home());
   };
 }
 
 /** Login/register pages: skip them when already logged in. */
 export const guestGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
-  return auth.token() ? inject(Router).parseUrl(auth.homeFor(auth.role())) : true;
+  return auth.token() ? inject(Router).parseUrl(auth.home()) : true;
 };

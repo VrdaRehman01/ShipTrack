@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, effect, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject, input, signal, untracked } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -102,7 +102,8 @@ export class TrackPage {
       const code = this.code();
       if (code) {
         this.entered = code.toUpperCase();
-        this.lookUp(code);
+        // untracked: only a new code should re-run this, not the signals the HTTP call happens to read.
+        untracked(() => this.lookUp(code));
       }
     });
   }
@@ -118,6 +119,10 @@ export class TrackPage {
       return;
     }
     this.formatProblem.set(false);
+    if (code === this.code()?.toUpperCase()) {
+      this.lookUp(code); // same address, so the router won't reload: refresh the result directly
+      return;
+    }
     void this.router.navigate(['/track', code]);
   }
 

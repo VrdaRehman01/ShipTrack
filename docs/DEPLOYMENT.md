@@ -10,7 +10,7 @@ Deploy workflow builds the images, pushes them to ECR and updates the instance t
 | Secrets | Secrets Manager: `shiptrack/prod` (one JSON secret, generated, never in Git) |
 | Logs | CloudWatch Logs: `/shiptrack/prod` (7 days) |
 | Website | CloudFront (https, `WebsiteUrl` output) → the server's fixed IP ([ADR 0009](adr/0009-https-cloudfront.md)) |
-| Server | EC2 `shiptrack-prod` (c7i-flex.large: 2 vCPU / 4 GB, free-tier eligible; Amazon Linux 2023), port 80 only, no SSH |
+| Server | EC2 `shiptrack-prod` (c7i-flex.large: 2 vCPU / 4 GB, free-tier eligible; Amazon Linux 2023), port 80 open to CloudFront only, no SSH |
 | Cost guardrail | AWS Budget `shiptrack-monthly`: email at 80% of $5 and when forecast exceeds $5 |
 
 **Cost:** about **$0.06/hour while running** (≈ $1.50 for a full day) and **≈ $5.50/month while stopped**

@@ -53,6 +53,7 @@ services:
     environment:
       <<: *service-env
       JWT_EXPIRATION: ${JWT_EXPIRATION:-15m}
+      JWT_MAX_SESSION: ${JWT_MAX_SESSION:-8h}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     ports:

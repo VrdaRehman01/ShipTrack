@@ -10,11 +10,13 @@ import com.shiptrack.common.security.JwtVerifier;
 import com.shiptrack.common.security.Role;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.WeakKeyException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Date;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -25,7 +27,9 @@ class JwtServiceTest {
     private static final Instant NOW = Instant.parse("2026-11-04T09:30:00Z");
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
 
-    private final JwtProperties props = new JwtProperties(SECRET, Duration.ofMinutes(15), "shiptrack-auth");
+    private static final Duration EIGHT_HOURS = Duration.ofHours(8);
+
+    private final JwtProperties props = new JwtProperties(SECRET, Duration.ofMinutes(15), "shiptrack-auth", EIGHT_HOURS);
     private final JwtService jwtService = new JwtService(props, CLOCK);
     private final JwtVerifier verifier = new JwtVerifier(props, CLOCK);
 
@@ -53,7 +57,7 @@ class JwtServiceTest {
     @Test
     void rejectsTokenSignedWithAnotherSecret() {
         JwtService other = new JwtService(
-                new JwtProperties("a-completely-different-secret-32-chars-min!", Duration.ofMinutes(15), "shiptrack-auth"),
+                new JwtProperties("a-completely-different-secret-32-chars-min!", Duration.ofMinutes(15), "shiptrack-auth", EIGHT_HOURS),
                 CLOCK);
         String foreignToken = other.generateToken(user(1L, Role.ADMIN));
 
@@ -62,7 +66,7 @@ class JwtServiceTest {
 
     @Test
     void rejectsTokenFromAnotherIssuer() {
-        JwtService otherIssuer = new JwtService(new JwtProperties(SECRET, Duration.ofMinutes(15), "someone-else"), CLOCK);
+        JwtService otherIssuer = new JwtService(new JwtProperties(SECRET, Duration.ofMinutes(15), "someone-else", EIGHT_HOURS), CLOCK);
         String token = otherIssuer.generateToken(user(1L, Role.ADMIN));
 
         assertThatThrownBy(() -> verifier.verify(token)).isInstanceOf(JwtException.class);
@@ -84,8 +88,68 @@ class JwtServiceTest {
 
     @Test
     void refusesShortSecret() {
-        JwtProperties weak = new JwtProperties("too-short", Duration.ofMinutes(15), "shiptrack-auth");
+        JwtProperties weak = new JwtProperties("too-short", Duration.ofMinutes(15), "shiptrack-auth", EIGHT_HOURS);
         assertThatThrownBy(() -> new JwtService(weak, Clock.systemUTC())).isInstanceOf(WeakKeyException.class);
+    }
+
+    @Test
+    void renewalGivesAFullTokenAndKeepsTheOriginalLoginTime() {
+        String first = jwtService.generateToken(user(1L, Role.DRIVER));
+        Instant later = NOW.plus(Duration.ofMinutes(10));
+
+        JwtService.Renewal renewal = serviceAt(later).renew(user(1L, Role.DRIVER), first).orElseThrow();
+
+        assertThat(renewal.expiresInSeconds()).isEqualTo(900);
+        JwtVerifier verifierLater = verifierAt(later.plus(Duration.ofMinutes(14)));
+        assertThat(verifierLater.verify(renewal.token()).id()).isEqualTo(1L);
+        assertThat(verifierLater.sessionStart(renewal.token())).contains(NOW);
+    }
+
+    @Test
+    void renewalNearTheLimitIsCutShortAtExactlyEightHours() {
+        Instant fiveMinutesBeforeLimit = NOW.plus(EIGHT_HOURS).minus(Duration.ofMinutes(5));
+        String token = tokenKeptAliveUntil(fiveMinutesBeforeLimit);
+
+        JwtService.Renewal renewal = serviceAt(fiveMinutesBeforeLimit).renew(user(1L, Role.DRIVER), token).orElseThrow();
+
+        assertThat(renewal.expiresInSeconds()).isEqualTo(300);
+    }
+
+    @Test
+    void renewingAllDayCannotOutliveTheEightHourLimit() {
+        Instant limit = NOW.plus(EIGHT_HOURS);
+        String token = tokenKeptAliveUntil(limit);
+
+        assertThat(serviceAt(limit).renew(user(1L, Role.DRIVER), token)).isEmpty();
+        assertThatThrownBy(() -> verifierAt(limit.plusSeconds(1)).verify(token)).isInstanceOf(ExpiredJwtException.class);
+    }
+
+    /** A token renewed every 10 minutes from login, as an active user's would be. */
+    private String tokenKeptAliveUntil(Instant end) {
+        User driver = user(1L, Role.DRIVER);
+        String token = jwtService.generateToken(driver);
+        for (Instant at = NOW.plus(Duration.ofMinutes(10)); at.isBefore(end); at = at.plus(Duration.ofMinutes(10))) {
+            token = serviceAt(at).renew(driver, token).orElseThrow().token();
+        }
+        return token;
+    }
+
+    @Test
+    void tokenFromBeforeSessionsExistedCannotBeRenewed() {
+        String oldToken = Jwts.builder().subject("1").issuer("shiptrack-auth")
+                .claim(JwtVerifier.CLAIM_EMAIL, "user@example.com").claim(JwtVerifier.CLAIM_ROLE, "DRIVER")
+                .expiration(Date.from(NOW.plus(Duration.ofMinutes(15))))
+                .signWith(JwtVerifier.signingKey(SECRET), Jwts.SIG.HS256).compact();
+
+        assertThat(jwtService.renew(user(1L, Role.DRIVER), oldToken)).isEmpty();
+    }
+
+    private JwtService serviceAt(Instant at) {
+        return new JwtService(props, Clock.fixed(at, ZoneOffset.UTC));
+    }
+
+    private JwtVerifier verifierAt(Instant at) {
+        return new JwtVerifier(props, Clock.fixed(at, ZoneOffset.UTC));
     }
 
     private static User user(Long id, Role role) {
