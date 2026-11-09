@@ -13,7 +13,9 @@ import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
+import io.swagger.v3.oas.models.servers.Server;
 import java.time.Clock;
+import java.util.List;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -154,6 +156,9 @@ public class ShipTrackAutoConfiguration {
                         .title("ShipTrack " + appName)
                         .version("v1")
                         .description("Log in via auth-service, copy accessToken, then click Authorize."))
+                // Relative: Swagger UI calls whatever address it was opened on (localhost, http or CloudFront https),
+                // never a service's internal Docker hostname.
+                .servers(List.of(new Server().url("/").description("This site")))
                 .components(new Components().addSecuritySchemes(BEARER_SCHEME, new SecurityScheme()
                         .type(SecurityScheme.Type.HTTP).scheme("bearer").bearerFormat("JWT")))
                 .addSecurityItem(new SecurityRequirement().addList(BEARER_SCHEME));

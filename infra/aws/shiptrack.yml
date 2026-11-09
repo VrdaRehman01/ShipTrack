@@ -2,7 +2,8 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   ShipTrack demo environment (ADR 0007): one EC2 instance running the Docker Compose stack, images in ECR,
   secrets in Secrets Manager, logs in CloudWatch, a monthly budget alarm, and a least-privilege identity for GitHub Actions deploys.
-  Costs about USD 0.06/hour while the instance runs and about USD 2/month while stopped (disk + secret).
+  On AWS Free plan accounts the instance type is free-tier eligible; disk, Elastic IP and the secret are a few
+  dollars a month from free credits. CloudFront gives the site https at no extra cost for demo traffic.
 
 Parameters:
   AlertEmail:
@@ -193,6 +194,90 @@ Resources:
           ADMIN_EMAIL=${AdminEmail}
           EOF
 
+  # ------------------------------------------------------------------ fixed address + https (ADR 0009)
+  # A fixed public IP, so the server keeps its address across stop/start and CloudFront always finds it.
+  ElasticIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - { Key: Name, Value: shiptrack-prod }
+
+  ElasticIpAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt ElasticIp.AllocationId
+      InstanceId: !Ref Instance
+
+  # API responses must never be shared between users. Caching is effectively off (max 1 s, and the services send
+  # Cache-Control: no-store), and Authorization is part of the key, which is also what makes CloudFront forward it.
+  ApiCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "${AWS::StackName}-api-no-cache"
+        Comment: ShipTrack API and pages - effectively uncached, per-user
+        MinTTL: 0
+        DefaultTTL: 0
+        MaxTTL: 1
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          HeadersConfig:
+            HeaderBehavior: whitelist
+            Headers: [Authorization]
+          CookiesConfig: { CookieBehavior: none }
+          QueryStringsConfig: { QueryStringBehavior: all }
+
+  # https://<something>.cloudfront.net in front of the server: browsers get a secure site (needed for drivers' GPS),
+  # with no domain or certificate to buy.
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: ShipTrack website and API
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_200
+        Origins:
+          - Id: shiptrack-server
+            # The Elastic IP's public DNS name (CloudFront needs a host name, not an IP).
+            DomainName: !Sub
+              - "ec2-${Dashed}.${AWS::Region}.compute.amazonaws.com"
+              - Dashed: !Join ["-", !Split [".", !Ref ElasticIp]]
+            CustomOriginConfig:
+              HTTPPort: 80
+              OriginProtocolPolicy: http-only
+              OriginReadTimeout: 30
+        DefaultCacheBehavior:
+          TargetOriginId: shiptrack-server
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: !Ref ApiCachePolicy
+          # Managed "AllViewerAndCloudFrontHeaders-2022-06": all viewer headers plus CloudFront-Forwarded-Proto,
+          # so nginx can tell the backend the original request was https.
+          OriginRequestPolicyId: 33f36d7e-f396-46d9-90e0-52428a34d9dc
+        CacheBehaviors:
+          # Hashed build files never change: cache them at the edge (managed "CachingOptimized").
+          - PathPattern: "*.js"
+            TargetOriginId: shiptrack-server
+            ViewerProtocolPolicy: redirect-to-https
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          - PathPattern: "*.css"
+            TargetOriginId: shiptrack-server
+            ViewerProtocolPolicy: redirect-to-https
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          - PathPattern: "/media/*"
+            TargetOriginId: shiptrack-server
+            ViewerProtocolPolicy: redirect-to-https
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+
   # ------------------------------------------------------------------ cost guardrail (doc: alarm at $5 on day one)
   Budget:
     Type: AWS::Budgets::Budget
@@ -243,6 +328,9 @@ Resources:
           - Effect: Allow
             Action: [ssm:GetCommandInvocation, ssm:ListCommandInvocations, ssm:DescribeInstanceInformation, ec2:DescribeInstances]
             Resource: "*"
+          - Effect: Allow
+            Action: cloudformation:DescribeStacks
+            Resource: !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*"
 
   # Option A (default): a deploy-only IAM user. Its access key is created by you in CloudShell, never by this
   # template, so the secret never appears in CloudFormation outputs or events.
@@ -280,8 +368,16 @@ Resources:
                 token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepo}:ref:refs/heads/main"
 
 Outputs:
+  WebsiteUrl:
+    Description: The site (https). Stays the same across server stop/start.
+    Value: !Sub "https://${Distribution.DomainName}"
+  SwaggerUrl:
+    Value: !Sub "https://${Distribution.DomainName}/swagger-ui.html"
+  ServerIp:
+    Description: Fixed public IP of the server (plain http, for debugging).
+    Value: !Ref ElasticIp
   InstanceId:
-    Description: Set as GitHub repo variable AWS_INSTANCE_ID.
+    Description: The EC2 instance (the deploy finds it by its shiptrack-prod tag).
     Value: !Ref Instance
   DeployUserName:
     Condition: UseAccessKey
@@ -294,8 +390,3 @@ Outputs:
   Region:
     Description: Set as GitHub repo variable AWS_REGION.
     Value: !Ref AWS::Region
-  ApiUrl:
-    Description: Public URL of the website and API (changes after stop/start; see docs/DEPLOYMENT.md).
-    Value: !Sub "http://${Instance.PublicDnsName}"
-  SwaggerUrl:
-    Value: !Sub "http://${Instance.PublicDnsName}/swagger-ui.html"

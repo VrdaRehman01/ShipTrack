@@ -1,5 +1,21 @@
 # ShipTrack web: serves the Angular app and forwards API/docs calls to the gateway on the same origin,
 # so the browser never needs CORS. ${API_GATEWAY} is filled in from the environment at container start.
+# Behind CloudFront the browser used https, but CloudFront reaches us over http. CloudFront tells us via
+# CloudFront-Forwarded-Proto, and we pass that on so the backend (e.g. Swagger links) uses https too.
+map $http_cloudfront_forwarded_proto $fwd_proto {
+    default $scheme;
+    https   https;
+}
+map $fwd_proto $fwd_port {
+    https   443;
+    default $server_port;
+}
+# Tell browsers to stay on https, but only when they actually came in over https.
+map $fwd_proto $hsts {
+    https   "max-age=31536000";
+    default "";
+}
+
 server {
     listen 80;
     server_tokens off;
@@ -20,18 +36,18 @@ server {
         proxy_pass $gateway;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $fwd_proto;
         proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_set_header X-Forwarded-Port $fwd_port;
         proxy_read_timeout 30s;
         client_max_body_size 1m;
     }
     location = /swagger-ui.html {
         proxy_pass $gateway;
         proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $fwd_proto;
         proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_set_header X-Forwarded-Port $fwd_port;
     }
 
     # Hashed build files never change: cache them for a year.
@@ -49,6 +65,7 @@ server {
         add_header X-Frame-Options DENY always;
         add_header Referrer-Policy strict-origin-when-cross-origin always;
         add_header Permissions-Policy "geolocation=(self), camera=(), microphone=()" always;
+        add_header Strict-Transport-Security $hsts always;
         add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
         try_files $uri $uri/ /index.html;
     }
