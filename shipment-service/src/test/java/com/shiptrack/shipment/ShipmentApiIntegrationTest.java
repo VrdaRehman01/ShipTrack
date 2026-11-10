@@ -196,7 +196,8 @@ class ShipmentApiIntegrationTest {
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
                 assertThat(shipments.findById(id).orElseThrow().isInvoiced()).isTrue());
         verify(billingClient).createInvoice(eq(new BillingClient.CreateInvoiceRequest(
-                id, shipments.findById(id).orElseThrow().getTrackingCode(), customerId, new java.math.BigDecimal("2.500"))));
+                id, shipments.findById(id).orElseThrow().getTrackingCode(), customerId, new java.math.BigDecimal("2.500"),
+                driverId, new java.math.BigDecimal("40.00"))));
 
         mockMvc.perform(get("/api/v1/shipments/{id}/history", id).header(HttpHeaders.AUTHORIZATION, bearer(customer)))
                 .andExpect(status().isOk())

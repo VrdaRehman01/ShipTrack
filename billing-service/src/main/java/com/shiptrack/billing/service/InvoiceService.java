@@ -1,6 +1,7 @@
 package com.shiptrack.billing.service;
 
 import com.shiptrack.billing.dto.CreateInvoiceRequest;
+import com.shiptrack.billing.dto.DriverEarningsResponse;
 import com.shiptrack.billing.dto.InvoiceResponse;
 import com.shiptrack.billing.entity.Invoice;
 import com.shiptrack.billing.entity.InvoiceStatus;
@@ -9,9 +10,12 @@ import com.shiptrack.billing.repository.InvoiceRepository;
 import com.shiptrack.common.error.ApiException;
 import com.shiptrack.common.error.CommonErrorCode;
 import com.shiptrack.common.security.AuthenticatedUser;
+import com.shiptrack.common.security.Role;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Objects;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -53,7 +57,8 @@ public class InvoiceService {
         try {
             Invoice created = tx.execute(status -> {
                 Invoice invoice = new Invoice(request.shipmentId(), request.trackingCode(), request.customerId(),
-                        request.weightKg(), pricing.price(request.weightKg()), clock.instant());
+                        request.weightKg(), pricing.price(request.weightKg()), clock.instant(),
+                        request.driverId(), request.driverPayoutPercent());
                 invoices.saveAndFlush(invoice);
                 invoice.assignInvoiceNumber(invoiceNumber(invoice.getId(), invoice.getIssuedAt()));
                 return invoice;
@@ -79,6 +84,21 @@ public class InvoiceService {
     public InvoiceResponse get(AuthenticatedUser caller, Long id) {
         Invoice invoice = invoices.findById(id).orElseThrow(() -> ApiException.notFound("Invoice", id));
         return InvoiceResponse.from(checkVisible(caller, invoice));
+    }
+
+    /** Drivers see only their accrued share totals; old invoices without an earnings snapshot are excluded. */
+    @Transactional(readOnly = true)
+    public DriverEarningsResponse driverEarnings(AuthenticatedUser caller) {
+        if (caller.role() != Role.DRIVER) {
+            throw ApiException.forbidden("Driver earnings are only available to drivers");
+        }
+        var totals = invoices.findDriverEarnings(caller.id());
+        BigDecimal gross = totals.getGrossFare().setScale(2, RoundingMode.HALF_UP);
+        BigDecimal earned = totals.getEarnedAmount().setScale(2, RoundingMode.HALF_UP);
+        BigDecimal effectivePercent = gross.signum() == 0 ? BigDecimal.ZERO
+                : earned.multiply(new BigDecimal("100")).divide(gross, 2, RoundingMode.HALF_UP);
+        return new DriverEarningsResponse(totals.getCompletedDeliveries(), totals.getCurrency(), gross.toPlainString(),
+                earned.toPlainString(), effectivePercent.toPlainString());
     }
 
     /** Customers see their own invoices, admins see all. */

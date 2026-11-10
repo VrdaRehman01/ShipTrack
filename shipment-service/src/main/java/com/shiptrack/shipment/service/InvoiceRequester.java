@@ -100,7 +100,8 @@ public class InvoiceRequester {
             return true;
         }
         var request = new BillingClient.CreateInvoiceRequest(
-                shipment.getId(), shipment.getTrackingCode(), shipment.getCustomerId(), shipment.getWeightKg());
+                shipment.getId(), shipment.getTrackingCode(), shipment.getCustomerId(), shipment.getWeightKg(),
+                shipment.getDriverId(), shipment.getDriverPayoutPercent());
         try {
             circuitBreaker.executeRunnable(() -> billingClient.createInvoice(request));
         } catch (CallNotPermittedException e) {

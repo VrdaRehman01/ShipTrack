@@ -1,5 +1,6 @@
 package com.shiptrack.billing.controller;
 
+import com.shiptrack.billing.dto.DriverEarningsResponse;
 import com.shiptrack.billing.dto.InvoiceResponse;
 import com.shiptrack.billing.entity.InvoiceStatus;
 import com.shiptrack.billing.service.InvoiceService;
@@ -61,6 +62,13 @@ public class InvoiceController {
     @Operation(summary = "Get an invoice by id (owner or admin)")
     public InvoiceResponse get(@AuthenticationPrincipal AuthenticatedUser caller, @PathVariable Long id) {
         return invoiceService.get(caller, id);
+    }
+
+    @GetMapping("/driver-earnings")
+    @PreAuthorize("hasRole('DRIVER')")
+    @Operation(summary = "Get the logged-in driver's accrued delivery earnings")
+    public DriverEarningsResponse driverEarnings(@AuthenticationPrincipal AuthenticatedUser caller) {
+        return invoiceService.driverEarnings(caller);
     }
 
     @PostMapping("/{id}/payments")

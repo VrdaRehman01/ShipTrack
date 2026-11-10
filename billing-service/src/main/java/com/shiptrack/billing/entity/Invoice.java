@@ -44,6 +44,15 @@ public class Invoice {
     @Column(name = "weight_charge", nullable = false, precision = 12, scale = 2, updatable = false)
     private BigDecimal weightCharge;
 
+    @Column(name = "driver_id", updatable = false)
+    private Long driverId;
+
+    @Column(name = "driver_payout_percent", precision = 5, scale = 2, updatable = false)
+    private BigDecimal driverPayoutPercent;
+
+    @Column(name = "driver_payout_amount", precision = 12, scale = 2, updatable = false)
+    private BigDecimal driverPayoutAmount;
+
     @Column(nullable = false, precision = 12, scale = 2, updatable = false)
     private BigDecimal amount;
 
@@ -72,7 +81,7 @@ public class Invoice {
 
     @SuppressWarnings("checkstyle:ParameterNumber")
     public Invoice(Long shipmentId, String trackingCode, Long customerId, BigDecimal weightKg,
-                   Price price, Instant issuedAt) {
+                   Price price, Instant issuedAt, Long driverId, BigDecimal driverPayoutPercent) {
         this.shipmentId = shipmentId;
         this.trackingCode = trackingCode;
         this.customerId = customerId;
@@ -80,9 +89,18 @@ public class Invoice {
         this.baseFee = price.baseFee();
         this.weightCharge = price.weightCharge();
         this.amount = price.total();
+        this.driverId = driverId;
+        this.driverPayoutPercent = driverPayoutPercent;
+        this.driverPayoutAmount = driverPayoutPercent == null || driverId == null ? null
+                : price.total().multiply(driverPayoutPercent).divide(new BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP);
         this.currency = price.currency();
         this.status = InvoiceStatus.ISSUED;
         this.issuedAt = issuedAt.truncatedTo(ChronoUnit.SECONDS);
+    }
+
+    public Invoice(Long shipmentId, String trackingCode, Long customerId, BigDecimal weightKg,
+                   Price price, Instant issuedAt) {
+        this(shipmentId, trackingCode, customerId, weightKg, price, issuedAt, null, null);
     }
 
     /** The priced parts of an invoice. */
@@ -128,6 +146,18 @@ public class Invoice {
 
     public BigDecimal getWeightCharge() {
         return weightCharge;
+    }
+
+    public Long getDriverId() {
+        return driverId;
+    }
+
+    public BigDecimal getDriverPayoutPercent() {
+        return driverPayoutPercent;
+    }
+
+    public BigDecimal getDriverPayoutAmount() {
+        return driverPayoutAmount;
     }
 
     public BigDecimal getAmount() {

@@ -89,6 +89,9 @@ public class Shipment {
     @Column(name = "delivery_code_hash", length = 60)
     private String deliveryCodeHash;
 
+    @Column(name = "driver_payout_percent", precision = 5, scale = 2)
+    private BigDecimal driverPayoutPercent;
+
     /** Optimistic locking: two simultaneous status updates can't both win. */
     @Version
     @Column(nullable = false)
@@ -262,6 +265,14 @@ public class Shipment {
 
     public String getDeliveryCodeHash() {
         return deliveryCodeHash;
+    }
+
+    public void setDriverPayoutPercent(BigDecimal percentage) {
+        this.driverPayoutPercent = percentage;
+    }
+
+    public BigDecimal getDriverPayoutPercent() {
+        return driverPayoutPercent;
     }
 
     public long getVersion() {

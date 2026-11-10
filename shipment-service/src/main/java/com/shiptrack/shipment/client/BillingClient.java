@@ -13,7 +13,11 @@ import org.springframework.web.client.RestClient;
 public class BillingClient {
 
     /** Body for POST /internal/invoices. Billing is idempotent on shipmentId, so re-sending is safe. */
-    public record CreateInvoiceRequest(Long shipmentId, String trackingCode, Long customerId, BigDecimal weightKg) {
+    public record CreateInvoiceRequest(Long shipmentId, String trackingCode, Long customerId, BigDecimal weightKg,
+                                       Long driverId, BigDecimal driverPayoutPercent) {
+        public CreateInvoiceRequest(Long shipmentId, String trackingCode, Long customerId, BigDecimal weightKg) {
+            this(shipmentId, trackingCode, customerId, weightKg, null, null);
+        }
     }
 
     private final RestClient restClient;

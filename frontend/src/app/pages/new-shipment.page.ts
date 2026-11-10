@@ -1,9 +1,11 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { Api, describeError } from '../core/api';
 import { newIdempotencyKey } from '../core/ids';
-import { NewShipment } from '../core/models';
+import { NewShipment, PriceQuote } from '../core/models';
+import { Subject, catchError, debounceTime, of, switchMap } from 'rxjs';
 
 /**
  * Book a parcel. One Idempotency-Key per filled-in form, so a double click or a retry after a
@@ -61,8 +63,19 @@ import { NewShipment } from '../core/models';
         <div class="field">
           <label for="weightKg">Weight (kg)</label>
           <input id="weightKg" name="weightKg" type="number" inputmode="decimal" step="0.001" min="0.001" max="1000"
-                 [(ngModel)]="form.weightKg" required aria-describedby="weight-hint" />
-          <span id="weight-hint" class="hint">Price: PKR 250 plus PKR 120 per kg, charged when it's delivered.</span>
+                 [(ngModel)]="form.weightKg" (ngModelChange)="weightChanged($event)" required aria-describedby="weight-hint" />
+          <span id="weight-hint" class="hint">
+            @if (quoteLoading()) {
+              Updating fare estimate…
+            } @else if (quote(); as q) {
+              Current estimate: {{ q.currency }} {{ q.total }} ({{ q.baseFee }} base + {{ q.weightCharge }} weight charge).
+              The final invoice is created on delivery using the rates then in effect.
+            } @else if (quoteError()) {
+              Fare estimate unavailable. <button class="text-button" type="button" (click)="weightChanged(form.weightKg)">Try again</button>
+            } @else {
+              Enter a valid weight to see the fare estimate.
+            }
+          </span>
         </div>
         <div class="field">
           <label for="description">What's inside (optional)</label>
@@ -72,7 +85,7 @@ import { NewShipment } from '../core/models';
 
       <div class="actions">
         <a class="btn btn-quiet" routerLink="/shipments">Cancel</a>
-        <button class="btn" type="submit" [disabled]="saving() || f.invalid">{{ saving() ? 'Booking…' : 'Book pickup' }}</button>
+        <button class="btn" type="submit" [disabled]="saving() || f.invalid || quoteLoading() || !quote()">{{ saving() ? 'Booking…' : 'Book pickup' }}</button>
       </div>
     </form>
   `,
@@ -82,6 +95,7 @@ import { NewShipment } from '../core/models';
     legend { font: 700 var(--step-1) var(--font-sign); padding: 0 var(--s1); }
     textarea { resize: vertical; }
     .actions { display: flex; justify-content: flex-end; gap: var(--s3); }
+    .text-button { border: 0; padding: 0; background: none; color: var(--route-deep); text-decoration: underline; cursor: pointer; }
   `,
 })
 export class NewShipmentPage {
@@ -96,9 +110,39 @@ export class NewShipmentPage {
   };
   protected readonly saving = signal(false);
   protected readonly error = signal<string | null>(null);
+  protected readonly quote = signal<PriceQuote | null>(null);
+  protected readonly quoteLoading = signal(false);
+  protected readonly quoteError = signal(false);
+  private readonly weightChanges = new Subject<number | null>();
 
   /** Same key for every retry of this form; a new form gets a new key. */
   private readonly idempotencyKey = newIdempotencyKey();
+
+  constructor() {
+    this.weightChanges.pipe(
+      debounceTime(250),
+      switchMap((weightKg) => weightKg === null ? of(null) : this.api.priceQuote(weightKg).pipe(catchError(() => of(null)))),
+      takeUntilDestroyed(),
+    ).subscribe((quote) => {
+      this.quote.set(quote);
+      this.quoteLoading.set(false);
+      this.quoteError.set(quote === null);
+    });
+    this.weightChanged(this.form.weightKg);
+  }
+
+  protected weightChanged(weightKg: number): void {
+    if (!Number.isFinite(weightKg) || weightKg < 0.001 || weightKg > 1000) {
+      this.quote.set(null);
+      this.quoteLoading.set(false);
+      this.quoteError.set(false);
+      this.weightChanges.next(null);
+      return;
+    }
+    this.quoteLoading.set(true);
+    this.quoteError.set(false);
+    this.weightChanges.next(weightKg);
+  }
 
   protected submit(): void {
     this.saving.set(true);

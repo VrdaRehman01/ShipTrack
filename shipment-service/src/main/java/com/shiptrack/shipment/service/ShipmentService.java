@@ -18,6 +18,7 @@ import com.shiptrack.shipment.entity.ShipmentStatusChange;
 import com.shiptrack.shipment.exception.ShipmentErrorCode;
 import com.shiptrack.shipment.repository.ShipmentRepository;
 import com.shiptrack.shipment.repository.ShipmentStatusChangeRepository;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -41,6 +42,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -69,15 +72,27 @@ public class ShipmentService {
     private final ApplicationEventPublisher events;
     private final TransactionTemplate tx;
     private final Clock clock;
+    private final BigDecimal driverPayoutPercent;
 
     public ShipmentService(ShipmentRepository shipments, ShipmentStatusChangeRepository statusChanges, AuthClient authClient,
                            ApplicationEventPublisher events, TransactionTemplate tx, Clock clock) {
+        this(shipments, statusChanges, authClient, events, tx, clock, new BigDecimal("40.00"));
+    }
+
+    @Autowired
+    public ShipmentService(ShipmentRepository shipments, ShipmentStatusChangeRepository statusChanges, AuthClient authClient,
+                           ApplicationEventPublisher events, TransactionTemplate tx, Clock clock,
+                           @Value("${shiptrack.driver-payout-percent:40.00}") BigDecimal driverPayoutPercent) {
         this.shipments = shipments;
         this.statusChanges = statusChanges;
         this.authClient = authClient;
         this.events = events;
         this.tx = tx;
         this.clock = clock;
+        if (driverPayoutPercent.compareTo(BigDecimal.ZERO) < 0 || driverPayoutPercent.compareTo(new BigDecimal("100")) > 0) {
+            throw new IllegalArgumentException("shiptrack.driver-payout-percent must be between 0 and 100");
+        }
+        this.driverPayoutPercent = driverPayoutPercent.setScale(2, java.math.RoundingMode.HALF_UP);
     }
 
     // ---------------------------------------------------------------- create
@@ -233,6 +248,7 @@ public class ShipmentService {
         }
         if (target == ShipmentStatus.DELIVERED) {
             verifyDeliveryCode(shipment, request.deliveryCode());
+            shipment.setDriverPayoutPercent(driverPayoutPercent);
         }
 
         Instant now = clock.instant();

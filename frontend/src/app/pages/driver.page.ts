@@ -2,10 +2,10 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { Subscription, forkJoin, timer } from 'rxjs';
+import { Subscription, catchError, forkJoin, of, timer } from 'rxjs';
 import { Api, describeError, errorCode } from '../core/api';
 import { callLink, dayFromNow, directionsLink } from '../core/links';
-import { AvailableJob, Shipment, ShipmentStatus } from '../core/models';
+import { AvailableJob, DriverEarnings, Shipment, ShipmentStatus } from '../core/models';
 import { MOVE_LABEL, STATUS_LABEL, movesFor } from '../core/status';
 import { TrackingCodeComponent } from '../shared/tracking-code.component';
 
@@ -25,6 +25,17 @@ const DELIVER_BY = [
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1>Your jobs</h1>
+
+    @if (earnings(); as e) {
+      <section class="earnings" aria-labelledby="earnings-title">
+        <div>
+          <h2 id="earnings-title">Your delivery earnings</h2>
+          <p class="amount">{{ e.currency }} {{ money(e.earnedAmount) }}</p>
+          <p class="muted small">{{ e.completedDeliveries }} completed deliveries · {{ money(e.effectiveSharePercent) }}% share of {{ e.currency }} {{ money(e.grossFare) }} in fares</p>
+        </div>
+        <p class="muted small">Accrued earnings. Transfers are not recorded in ShipTrack yet.</p>
+      </section>
+    }
 
     @if (message()) {
       <p class="notice" [class.notice-error]="isError()" role="status">{{ message() }}</p>
@@ -113,6 +124,9 @@ const DELIVER_BY = [
       background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-panel);
     }
     .ticket { border-top: 4px solid var(--route); }
+    .earnings { display: grid; gap: var(--s2); padding: var(--s4); background: var(--paper); border: 1px solid var(--line); border-left: 4px solid var(--route); border-radius: var(--radius-panel); }
+    .earnings h2, .earnings p { margin: 0; }
+    .amount { font: 700 var(--step-2) var(--font-sign); }
     .ticket-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; }
     .state { font: 700 var(--step-1) var(--font-sign); }
 
@@ -149,6 +163,7 @@ export class DriverPage {
   protected readonly deliverBy = DELIVER_BY;
   protected readonly active = signal<Shipment[]>([]);
   protected readonly open = signal<AvailableJob[]>([]);
+  protected readonly earnings = signal<DriverEarnings | null>(null);
   protected readonly loaded = signal(false);
   protected readonly busy = signal(false);
   protected readonly message = signal<string | null>(null);
@@ -165,6 +180,7 @@ export class DriverPage {
 
   protected statusLabel(status: ShipmentStatus): string { return STATUS_LABEL[status]; }
   protected kg(weight: string): string { return String(Number(weight)); }
+  protected money(amount: string): string { return Number(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   protected call(phone: string): string { return callLink(phone); }
   protected directions(address: string): string { return directionsLink(address); }
   protected moveLabel(s: Shipment): string { return MOVE_LABEL[this.nextMove(s)]; }
@@ -178,10 +194,12 @@ export class DriverPage {
     this.loading = forkJoin({
       route: forkJoin(IN_PROGRESS.map((status) => this.api.shipments(status, 0, 50))),
       open: this.api.availableJobs(),
+      earnings: this.api.driverEarnings().pipe(catchError(() => of(null))),
     }).subscribe({
-      next: ({ route, open }) => {
+      next: ({ route, open, earnings }) => {
         this.active.set(route.flatMap((page) => page.content));
         this.open.set(open.content);
+        this.earnings.set(earnings);
         this.loaded.set(true);
       },
       error: (err) => this.say(describeError(err), true),

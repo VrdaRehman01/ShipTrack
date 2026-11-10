@@ -82,6 +82,22 @@ export interface NewShipment {
   description?: string;
 }
 
+export interface PriceQuote {
+  currency: string;
+  baseFee: string;
+  perKgRate: string;
+  weightCharge: string;
+  total: string;
+}
+
+export interface DriverEarnings {
+  completedDeliveries: number;
+  currency: string;
+  grossFare: string;
+  earnedAmount: string;
+  effectiveSharePercent: string;
+}
+
 export interface StatusChange {
   fromStatus: ShipmentStatus | null;
   toStatus: ShipmentStatus;

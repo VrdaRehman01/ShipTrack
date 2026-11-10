@@ -68,6 +68,8 @@ To stop everything, run `docker compose down`. Add `-v` to also delete the datab
 | GET | `/api/v1/users/me` | Anyone logged in | Who am I |
 | GET/POST | `/api/v1/users` | Admin | List users (`?role=DRIVER`), create drivers and admins |
 | POST | `/api/v1/shipments` | Customer | Create (send `Idempotency-Key`) |
+| GET | `/api/v1/public/pricing/quote?weightKg=` | Public | Current fare estimate using the same configured rates as invoices |
+| GET | `/api/v1/invoices/driver-earnings` | Driver | Accrued share and fare totals for the signed-in driver |
 | POST | `/api/v1/shipments/{id}/delivery-code` | Shipment owner | Issue or replace the receiver's four-digit delivery code |
 | GET | `/api/v1/shipments` | Anyone logged in | Customers: own; drivers: assigned; admins: all. `?status=&page=&size=` |
 | GET | `/api/v1/shipments/{id}` | Owner, driver, admin | Details |
@@ -78,9 +80,12 @@ To stop everything, run `docker compose down`. Add `-v` to also delete the datab
 | POST | `/api/v1/tracking/{shipmentId}/locations` | Assigned driver | Post location |
 | GET | `/api/v1/tracking/{shipmentId}/latest` | Owner, driver, admin | Latest location |
 | GET | `/api/v1/tracking/{shipmentId}/locations` | Owner, driver, admin | Route, newest first |
+
 | GET | `/api/v1/invoices?shipmentId=` | Owner, admin | Invoice for a shipment |
 | GET | `/api/v1/invoices` | Customer (own), admin | List invoices |
 | POST | `/api/v1/invoices/{id}/payments` | Admin | Mark paid |
+
+Driver earnings accrue at 40% of the invoice fare by default (`DRIVER_PAYOUT_PERCENT` is configurable from 0 to 100). The percentage and amount are snapshotted when the delivery invoice is created, so later rate changes do not rewrite prior earnings. ShipTrack currently tracks accrued earnings; it does not record transfers to drivers.
 
 Every error has the same shape and carries the request's correlation ID:
 ```json

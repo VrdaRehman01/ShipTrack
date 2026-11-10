@@ -3,7 +3,8 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { BACKGROUND_CALL } from './auth.service';
 import {
-  ApiError, AvailableJob, Invoice, Location, NewShipment, Page, PublicTracking, Role, Shipment, ShipmentStatus, StatusChange, User,
+  ApiError, AvailableJob, DriverEarnings, Invoice, Location, NewShipment, Page, PriceQuote, PublicTracking, Role, Shipment,
+  ShipmentStatus, StatusChange, User,
 } from './models';
 
 /** Options for an automatic refresh, which must not keep an idle session alive. */
@@ -64,6 +65,9 @@ export class Api {
   issueDeliveryCode(id: number): Observable<{ deliveryCode: string }> {
     return this.http.post<{ deliveryCode: string }>(`/api/v1/shipments/${id}/delivery-code`, {});
   }
+  priceQuote(weightKg: number): Observable<PriceQuote> {
+    return this.http.get<PriceQuote>('/api/v1/public/pricing/quote', { params: params({ weightKg }) });
+  }
   moveShipment(id: number, status: ShipmentStatus, expectedVersion: number, note?: string, deliveryCode?: string): Observable<Shipment> {
     return this.http.patch<Shipment>(`/api/v1/shipments/${id}/status`, {
       status, note: note || null, expectedVersion, ...(deliveryCode ? { deliveryCode } : {}),
@@ -96,6 +100,9 @@ export class Api {
   }
   recordPayment(invoiceId: number): Observable<Invoice> {
     return this.http.post<Invoice>(`/api/v1/invoices/${invoiceId}/payments`, {});
+  }
+  driverEarnings(): Observable<DriverEarnings> {
+    return this.http.get<DriverEarnings>('/api/v1/invoices/driver-earnings');
   }
 
   // users (admin)
