@@ -1,0 +1,10 @@
+[Unit]
+Description=ShipTrack MySQL backup to S3
+Wants=network-online.target
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/shiptrack/backup-database.sh
+User=root
+UMask=0077

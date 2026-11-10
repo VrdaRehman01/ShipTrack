@@ -10,6 +10,9 @@ IMAGE_TAG="${1:?usage: deploy-on-host.sh <image-tag>}"
 APP_DIR=/opt/shiptrack
 SECRET_ID=shiptrack/prod
 cd "$APP_DIR"
+chmod 700 "$APP_DIR/backup-database.sh"
+systemctl daemon-reload
+systemctl enable --now shiptrack-backup.timer
 
 # Region, registry, log group and admin email were written by the instance's UserData.
 set -a
@@ -58,6 +61,7 @@ aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS 
 
 docker compose -f docker-compose.prod.yml pull --quiet
 docker compose -f docker-compose.prod.yml up -d --remove-orphans --wait --wait-timeout 420
+"$APP_DIR/backup-database.sh"
 docker image prune -f > /dev/null
 
 echo "Deployed $IMAGE_TAG"

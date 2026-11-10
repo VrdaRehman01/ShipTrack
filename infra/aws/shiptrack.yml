@@ -147,6 +147,46 @@ Resources:
               - Effect: Allow
                 Action: [logs:CreateLogStream, logs:PutLogEvents, logs:DescribeLogStreams]
                 Resource: !Sub "${LogGroup.Arn}:*"
+              - Effect: Allow
+                Action: [s3:PutObject]
+                Resource: !Sub "${DatabaseBackups.Arn}/*"
+
+  DatabaseBackups:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "shiptrack-db-backups-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireDatabaseBackups
+            Status: Enabled
+            ExpirationInDays: 30
+
+  DatabaseBackupsPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DatabaseBackups
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt DatabaseBackups.Arn
+              - !Sub "${DatabaseBackups.Arn}/*"
+            Condition:
+              Bool: { aws:SecureTransport: "false" }
 
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -197,6 +237,7 @@ Resources:
           AWS_REGION=${AWS::Region}
           ECR_REGISTRY=${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
           LOG_GROUP=${LogGroup}
+          BACKUP_BUCKET=shiptrack-db-backups-${AWS::AccountId}-${AWS::Region}
           ADMIN_EMAIL=${AdminEmail}
           EOF
 

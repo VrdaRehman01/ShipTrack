@@ -104,6 +104,9 @@ jobs:
               "mkdir -p /opt/shiptrack/mysql-init",
               "echo $(b64 infra/aws/docker-compose.prod.yml) | base64 -d > /opt/shiptrack/docker-compose.prod.yml",
               "echo $(b64 scripts/deploy-on-host.sh) | base64 -d > /opt/shiptrack/deploy-on-host.sh",
+              "echo $(b64 scripts/backup-database.sh) | base64 -d > /opt/shiptrack/backup-database.sh",
+              "echo $(b64 infra/aws/shiptrack-backup.service) | base64 -d > /etc/systemd/system/shiptrack-backup.service",
+              "echo $(b64 infra/aws/shiptrack-backup.timer) | base64 -d > /etc/systemd/system/shiptrack-backup.timer",
               "echo $(b64 docker/mysql/init/01-create-databases.sh) | base64 -d > /opt/shiptrack/mysql-init/01-create-databases.sh",
               "bash /opt/shiptrack/deploy-on-host.sh $IMAGE_TAG"
             ],

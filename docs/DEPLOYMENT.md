@@ -9,6 +9,7 @@ Deploy workflow builds the images, pushes them to ECR and updates the instance t
 | Images | ECR: `shiptrack/<service>` (last 5 kept) |
 | Secrets | Secrets Manager: `shiptrack/prod` (one JSON secret, generated, never in Git) |
 | Logs | CloudWatch Logs: `/shiptrack/prod` (7 days) |
+| Database backups | Private, AES-256 encrypted S3 bucket (daily at 02:30 UTC, 30-day retention; an extra backup runs after each deploy) |
 | Website | CloudFront (https, `WebsiteUrl` output) → the server's fixed IP ([ADR 0009](adr/0009-https-cloudfront.md)) |
 | Server | EC2 `shiptrack-prod` (c7i-flex.large: 2 vCPU / 4 GB, free-tier eligible; Amazon Linux 2023), port 80 open to CloudFront only, no SSH |
 | Cost guardrail | AWS Budget `shiptrack-monthly`: email at 80% of $5 and when forecast exceeds $5 |
@@ -128,6 +129,16 @@ aws ec2 wait instance-status-ok --instance-ids <InstanceId>
 Deploys fail fast with a clear message if the instance is stopped. Start it, then re-run the workflow.
 
 **Logs:** CloudWatch → Log groups → `/shiptrack/prod` (one stream per container, plus deploy output).
+
+**Database backups:** On the server, check the timer with `systemctl list-timers shiptrack-backup.timer` and recent runs with
+`journalctl -u shiptrack-backup.service`. Backups are compressed full MySQL dumps under `s3://shiptrack-db-backups-<account>-<region>/mysql/`.
+To restore one into a running MySQL container, download it and import it as root:
+```bash
+aws s3 cp s3://shiptrack-db-backups-<account>-<region>/mysql/<timestamp>.sql.gz /tmp/shiptrack.sql.gz
+gunzip -c /tmp/shiptrack.sql.gz | docker compose -f docker-compose.prod.yml exec -T -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot
+```
+Run the restore from `/opt/shiptrack` after loading `MYSQL_ROOT_PASSWORD` from the root-only `.env` (`set -a; . ./.env; set +a`).
+The S3 bucket is retained if the CloudFormation stack is deleted, so its backups survive server deletion.
 
 **Shell on the server** (no SSH needed): EC2 → Instances → `shiptrack-prod` → **Connect → Session Manager**.
 ```bash
