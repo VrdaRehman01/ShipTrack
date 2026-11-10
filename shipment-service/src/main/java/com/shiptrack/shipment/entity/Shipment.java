@@ -86,6 +86,9 @@ public class Shipment {
     @Column(name = "delivered_at")
     private Instant deliveredAt;
 
+    @Column(name = "delivery_code_hash", length = 60)
+    private String deliveryCodeHash;
+
     /** Optimistic locking: two simultaneous status updates can't both win. */
     @Version
     @Column(nullable = false)
@@ -139,6 +142,10 @@ public class Shipment {
     public void useIdempotencyKey(String key, String fingerprint) {
         this.idempotencyKey = key;
         this.idempotencyFingerprint = fingerprint;
+    }
+
+    public void setDeliveryCodeHash(String hash) {
+        this.deliveryCodeHash = hash;
     }
 
     /** A null date keeps any date already promised. */
@@ -251,6 +258,10 @@ public class Shipment {
 
     public Instant getDeliveredAt() {
         return deliveredAt;
+    }
+
+    public String getDeliveryCodeHash() {
+        return deliveryCodeHash;
     }
 
     public long getVersion() {

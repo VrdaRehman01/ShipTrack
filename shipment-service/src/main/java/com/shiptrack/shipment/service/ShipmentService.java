@@ -7,6 +7,7 @@ import com.shiptrack.common.security.Role;
 import com.shiptrack.shipment.client.AuthClient;
 import com.shiptrack.shipment.dto.AvailableJobResponse;
 import com.shiptrack.shipment.dto.CreateShipmentRequest;
+import com.shiptrack.shipment.dto.DeliveryCodeResponse;
 import com.shiptrack.shipment.dto.PublicTrackingResponse;
 import com.shiptrack.shipment.dto.ShipmentResponse;
 import com.shiptrack.shipment.dto.StatusChangeResponse;
@@ -20,6 +21,7 @@ import com.shiptrack.shipment.repository.ShipmentStatusChangeRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -27,6 +29,7 @@ import java.time.ZoneOffset;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.context.ApplicationEventPublisher;
@@ -35,6 +38,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -46,9 +51,17 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class ShipmentService {
 
+    private static final SecureRandom CODE_RANDOM = new SecureRandom();
+    private static final PasswordEncoder CODE_ENCODER = new BCryptPasswordEncoder();
+    private static final ConcurrentHashMap<Long, DeliveryCodeAttempts> DELIVERY_CODE_ATTEMPTS = new ConcurrentHashMap<>();
+    private static final int MAX_DELIVERY_CODE_ATTEMPTS = 5;
+    private static final long DELIVERY_CODE_ATTEMPT_WINDOW_SECONDS = 900;
+
     /** Result of create: the shipment, and whether it was an idempotent replay of an earlier request. */
     public record CreateResult(ShipmentResponse shipment, boolean replayed) {
     }
+
+    private record DeliveryCodeAttempts(int failures, Instant expiresAt, boolean locked) { }
 
     private final ShipmentRepository shipments;
     private final ShipmentStatusChangeRepository statusChanges;
@@ -115,6 +128,24 @@ public class ShipmentService {
                     "This Idempotency-Key was already used for a different shipment. Use a new key for a new shipment.");
         }
         return new CreateResult(ShipmentResponse.from(existing), true);
+    }
+
+    /** The owner can issue a fresh receiver code if the original was lost; previous codes stop working. */
+    @Transactional
+    public DeliveryCodeResponse issueDeliveryCode(AuthenticatedUser caller, Long id) {
+        Shipment shipment = loadVisible(caller, id);
+        if (caller.role() != Role.CUSTOMER || !shipment.isOwnedBy(caller.id())) {
+            throw ApiException.forbidden("Only the customer who booked this shipment can issue the receiver code");
+        }
+        if (shipment.getStatus().isFinal()) {
+            throw new ApiException(ShipmentErrorCode.SHIPMENT_CLOSED,
+                    "A receiver code can't be issued after the shipment is closed");
+        }
+        String code = newDeliveryCode();
+        shipment.setDeliveryCodeHash(CODE_ENCODER.encode(code));
+        shipments.saveAndFlush(shipment);
+        DELIVERY_CODE_ATTEMPTS.remove(id);
+        return new DeliveryCodeResponse(code);
     }
 
     /** ST-2026-000042: year created + zero-padded id. Matches the format in the API design system. */
@@ -200,17 +231,47 @@ public class ShipmentService {
         if (target == ShipmentStatus.PICKED_UP && shipment.getDriverId() == null) {
             throw new ApiException(ShipmentErrorCode.DRIVER_NOT_ASSIGNED, "Assign a driver before the shipment is picked up");
         }
+        if (target == ShipmentStatus.DELIVERED) {
+            verifyDeliveryCode(shipment, request.deliveryCode());
+        }
 
         Instant now = clock.instant();
         shipment.moveTo(target, now);
         shipments.saveAndFlush(shipment); // flush now so a concurrent update fails here with 409
-        statusChanges.save(new ShipmentStatusChange(id, from, target, caller.id(), caller.role(), blankToNull(request.note()), now));
+        String note = target == ShipmentStatus.DELIVERED && blankToNull(request.note()) == null
+                ? "Receiver delivery code verified" : blankToNull(request.note());
+        statusChanges.save(new ShipmentStatusChange(id, from, target, caller.id(), caller.role(), note, now));
 
         if (target == ShipmentStatus.DELIVERED) {
             // Handled after commit, off the request thread: billing being slow or down never blocks delivery.
             events.publishEvent(new ShipmentDeliveredEvent(id));
         }
         return ShipmentResponse.from(shipment);
+    }
+
+    private void verifyDeliveryCode(Shipment shipment, String code) {
+        Instant now = clock.instant();
+        DeliveryCodeAttempts attempts = DELIVERY_CODE_ATTEMPTS.get(shipment.getId());
+        if (attempts != null && attempts.expiresAt().isAfter(now) && attempts.locked()) {
+            throw new ApiException(ShipmentErrorCode.DELIVERY_CODE_RATE_LIMITED,
+                    "Too many incorrect codes. Ask the shipment owner to issue a fresh code and try again later.");
+        }
+        if (shipment.getDeliveryCodeHash() == null || code == null || !CODE_ENCODER.matches(code, shipment.getDeliveryCodeHash())) {
+            DELIVERY_CODE_ATTEMPTS.compute(shipment.getId(), (id, current) -> {
+                DeliveryCodeAttempts active = current == null || !current.expiresAt().isAfter(now)
+                        ? new DeliveryCodeAttempts(0, now.plusSeconds(DELIVERY_CODE_ATTEMPT_WINDOW_SECONDS), false)
+                        : current;
+                int failures = active.failures() + 1;
+                return new DeliveryCodeAttempts(failures, active.expiresAt(), failures >= MAX_DELIVERY_CODE_ATTEMPTS);
+            });
+            throw new ApiException(ShipmentErrorCode.DELIVERY_CODE_INVALID,
+                    "Ask the receiver for the four-digit delivery code and try again.");
+        }
+        DELIVERY_CODE_ATTEMPTS.remove(shipment.getId());
+    }
+
+    private static String newDeliveryCode() {
+        return String.format(java.util.Locale.ROOT, "%04d", CODE_RANDOM.nextInt(10_000));
     }
 
     /** Admin assigns (or reassigns) a driver until the shipment is delivered or cancelled. */

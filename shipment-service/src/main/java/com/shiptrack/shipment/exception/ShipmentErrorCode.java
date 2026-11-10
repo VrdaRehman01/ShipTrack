@@ -20,7 +20,11 @@ public enum ShipmentErrorCode implements ErrorCode {
     /** expectedVersion didn't match: someone else changed the shipment first. */
     VERSION_MISMATCH(HttpStatus.CONFLICT),
     /** FR-10: same Idempotency-Key reused with a different request body. */
-    IDEMPOTENCY_KEY_REUSED(HttpStatus.UNPROCESSABLE_CONTENT);
+    IDEMPOTENCY_KEY_REUSED(HttpStatus.UNPROCESSABLE_CONTENT),
+    /** Receiver's four-digit proof-of-delivery code is absent or incorrect. */
+    DELIVERY_CODE_INVALID(HttpStatus.BAD_REQUEST),
+    /** Too many delivery-code attempts for this parcel in the current window. */
+    DELIVERY_CODE_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS);
 
     private final HttpStatus status;
 

@@ -112,6 +112,11 @@ shipments = [
                "pm.test('replay header', () => pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('true'));"]),
     req("Other customer cannot read it (403, FR-6)", "GET", "/api/v1/shipments/{{shipmentId}}", token="otherToken",
         tests=[status(403), error_code("FORBIDDEN")]),
+    req("Customer issues receiver delivery code", "POST", "/api/v1/shipments/{{shipmentId}}/delivery-code",
+        token="customerToken", body={},
+        tests=[status(200), "const c = pm.response.json();",
+               "pm.test('four digit code', () => pm.expect(c.deliveryCode).to.match(/^\\d{4}$/));",
+               setvar("deliveryCode", "c.deliveryCode")]),
     req("Customer lists own shipments", "GET", "/api/v1/shipments?size=5", token="customerToken",
         tests=[status(200),
                "pm.test('contains new shipment', () => pm.expect(pm.response.json().content.map(s => s.id))"
@@ -145,7 +150,7 @@ shipments = [
     req("Other customer cannot track it (403)", "GET", "/api/v1/tracking/{{shipmentId}}/latest", token="otherToken",
         tests=[status(403)]),
     req("Driver: DELIVERED", "PATCH", "/api/v1/shipments/{{shipmentId}}/status", token="driverToken",
-        body={"status": "DELIVERED"},
+        body={"status": "DELIVERED", "deliveryCode": "{{deliveryCode}}"},
         tests=[status(200), "pm.test('delivered', () => pm.expect(pm.response.json().deliveredAt).to.be.a('string'));"]),
     req("Status history", "GET", "/api/v1/shipments/{{shipmentId}}/history", token="customerToken",
         tests=[status(200), "pm.test('4 steps', () => pm.expect(pm.response.json().map(c => c.toStatus))"

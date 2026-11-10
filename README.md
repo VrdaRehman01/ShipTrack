@@ -51,6 +51,7 @@ To stop everything, run `docker compose down`. Add `-v` to also delete the datab
 | FR-3 Roles | CUSTOMER, DRIVER, ADMIN. Public sign-up creates customers only; admins create drivers; the first admin comes from `.env` |
 | FR-4 Shipments | Create, list (paginated, newest first), view; tracking codes like `ST-2026-000042` |
 | FR-5 Lifecycle | `CREATED → PICKED_UP → IN_TRANSIT → DELIVERED`, no skipping (400 `INVALID_STATUS_TRANSITION`). Customers may cancel before pickup |
+| Proof of delivery | Booking gives the owner a four-digit code to share privately with the receiver; delivery requires it, wrong codes are rate-limited, and only a BCrypt hash is stored |
 | FR-6 Privacy | Owner, assigned driver or admin only; anyone else gets 403. Applies to shipments, locations and invoices |
 | FR-7 Invoices | Created automatically on delivery. Billing being down never fails a delivery (circuit breaker + retry job) |
 | FR-8 Tracking | Assigned driver posts locations while the parcel is moving; owner and admin read the latest location or the route |
@@ -67,10 +68,11 @@ To stop everything, run `docker compose down`. Add `-v` to also delete the datab
 | GET | `/api/v1/users/me` | Anyone logged in | Who am I |
 | GET/POST | `/api/v1/users` | Admin | List users (`?role=DRIVER`), create drivers and admins |
 | POST | `/api/v1/shipments` | Customer | Create (send `Idempotency-Key`) |
+| POST | `/api/v1/shipments/{id}/delivery-code` | Shipment owner | Issue or replace the receiver's four-digit delivery code |
 | GET | `/api/v1/shipments` | Anyone logged in | Customers: own; drivers: assigned; admins: all. `?status=&page=&size=` |
 | GET | `/api/v1/shipments/{id}` | Owner, driver, admin | Details |
 | GET | `/api/v1/shipments/{id}/history` | Owner, driver, admin | Status timeline |
-| PATCH | `/api/v1/shipments/{id}/status` | Driver, admin (customer: cancel) | Next status |
+| PATCH | `/api/v1/shipments/{id}/status` | Driver, admin (customer: cancel) | Next status; `DELIVERED` requires the receiver's `deliveryCode` |
 | PATCH | `/api/v1/shipments/{id}/driver` | Admin | Assign driver |
 | GET | `/api/v1/public/shipments/{trackingCode}` | Public | Status and timeline only |
 | POST | `/api/v1/tracking/{shipmentId}/locations` | Assigned driver | Post location |

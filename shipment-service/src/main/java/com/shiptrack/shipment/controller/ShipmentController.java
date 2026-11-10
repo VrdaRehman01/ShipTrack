@@ -7,6 +7,7 @@ import com.shiptrack.shipment.dto.AcceptJobRequest;
 import com.shiptrack.shipment.dto.AssignDriverRequest;
 import com.shiptrack.shipment.dto.AvailableJobResponse;
 import com.shiptrack.shipment.dto.CreateShipmentRequest;
+import com.shiptrack.shipment.dto.DeliveryCodeResponse;
 import com.shiptrack.shipment.dto.ShipmentResponse;
 import com.shiptrack.shipment.dto.StatusChangeResponse;
 import com.shiptrack.shipment.dto.UpdateStatusRequest;
@@ -100,6 +101,17 @@ public class ShipmentController {
         return shipmentService.get(caller, id);
     }
 
+    @PostMapping("/{id}/delivery-code")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Issue or replace the receiver's four-digit delivery code",
+            description = "Only the customer who booked the shipment can issue a code. Reissuing invalidates the prior code.")
+    @ApiResponse(responseCode = "200", description = "New code to share privately with the receiver")
+    @ApiResponse(responseCode = "403", description = "Not the shipment owner")
+    @ApiResponse(responseCode = "409", description = "Shipment is already closed")
+    public DeliveryCodeResponse issueDeliveryCode(@AuthenticationPrincipal AuthenticatedUser caller, @PathVariable Long id) {
+        return shipmentService.issueDeliveryCode(caller, id);
+    }
+
     @GetMapping("/{id}/history")
     @Operation(summary = "Status timeline: who changed what, and when")
     public List<StatusChangeResponse> history(@AuthenticationPrincipal AuthenticatedUser caller, @PathVariable Long id) {
@@ -110,7 +122,7 @@ public class ShipmentController {
     @Operation(summary = "Move to the next status",
             description = "CREATED → PICKED_UP → IN_TRANSIT → DELIVERED, one step at a time. Drivers (assigned) do the "
                     + "delivery steps; customers may cancel before pickup; admins may do any valid move. "
-                    + "DELIVERED triggers the invoice automatically.")
+                    + "DELIVERED requires the receiver's four-digit deliveryCode and triggers the invoice automatically.")
     @ApiResponse(responseCode = "400", description = "INVALID_STATUS_TRANSITION or DRIVER_NOT_ASSIGNED",
             content = @Content(schema = @Schema(implementation = ApiError.class)))
     @ApiResponse(responseCode = "403", description = "Your role can't make this change",

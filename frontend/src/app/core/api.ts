@@ -61,8 +61,13 @@ export class Api {
   createShipment(body: NewShipment, idempotencyKey: string): Observable<Shipment> {
     return this.http.post<Shipment>('/api/v1/shipments', body, { headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }) });
   }
-  moveShipment(id: number, status: ShipmentStatus, expectedVersion: number, note?: string): Observable<Shipment> {
-    return this.http.patch<Shipment>(`/api/v1/shipments/${id}/status`, { status, note: note || null, expectedVersion });
+  issueDeliveryCode(id: number): Observable<{ deliveryCode: string }> {
+    return this.http.post<{ deliveryCode: string }>(`/api/v1/shipments/${id}/delivery-code`, {});
+  }
+  moveShipment(id: number, status: ShipmentStatus, expectedVersion: number, note?: string, deliveryCode?: string): Observable<Shipment> {
+    return this.http.patch<Shipment>(`/api/v1/shipments/${id}/status`, {
+      status, note: note || null, expectedVersion, ...(deliveryCode ? { deliveryCode } : {}),
+    });
   }
   assignDriver(id: number, driverId: number, expectedDeliveryDate?: string): Observable<Shipment> {
     return this.http.patch<Shipment>(`/api/v1/shipments/${id}/driver`, { driverId, expectedDeliveryDate });

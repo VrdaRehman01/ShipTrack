@@ -189,7 +189,7 @@ class ShipmentApiIntegrationTest {
         doNothing().when(billingClient).createInvoice(any());
         patchStatus(driver, id, "PICKED_UP").andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PICKED_UP"));
         patchStatus(driver, id, "IN_TRANSIT").andExpect(status().isOk());
-        patchStatus(driver, id, "DELIVERED").andExpect(status().isOk())
+        patchDelivered(driver, id).andExpect(status().isOk())
                 .andExpect(jsonPath("$.deliveredAt").isNotEmpty());
 
         // FR-7: invoice requested in the background after commit
@@ -216,7 +216,7 @@ class ShipmentApiIntegrationTest {
 
         patchStatus(driver, id, "PICKED_UP").andExpect(status().isOk());
         patchStatus(driver, id, "IN_TRANSIT").andExpect(status().isOk());
-        patchStatus(driver, id, "DELIVERED").andExpect(status().isOk()).andExpect(jsonPath("$.status").value("DELIVERED"));
+        patchDelivered(driver, id).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("DELIVERED"));
 
         // 3 quick attempts right after delivery, then it's left to the retry job.
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> verify(billingClient, times(3)).createInvoice(any()));
@@ -358,6 +358,18 @@ class ShipmentApiIntegrationTest {
     private org.springframework.test.web.servlet.ResultActions patchStatus(String token, long id, String status) throws Exception {
         return mockMvc.perform(patch("/api/v1/shipments/{id}/status", id).header(HttpHeaders.AUTHORIZATION, bearer(token))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"" + status + "\"}"));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions patchDelivered(String token, long id) throws Exception {
+        String response = mockMvc.perform(post("/api/v1/shipments/{id}/delivery-code", id)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(customer)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String code = JsonPath.read(response, "$.deliveryCode");
+        return mockMvc.perform(patch("/api/v1/shipments/{id}/status", id).header(HttpHeaders.AUTHORIZATION, bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"DELIVERED\",\"deliveryCode\":\"" + code + "\"}"));
     }
 
     private static String body(String weight) {

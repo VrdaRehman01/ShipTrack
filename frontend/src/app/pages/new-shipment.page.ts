@@ -105,7 +105,14 @@ export class NewShipmentPage {
     this.error.set(null);
     const body: NewShipment = { ...this.form, description: this.form.description?.trim() || undefined };
     this.api.createShipment(body, this.idempotencyKey).subscribe({
-      next: (s) => void this.router.navigate(['/shipments', s.id], { queryParams: { booked: 1 } }),
+      next: (s) => this.api.issueDeliveryCode(s.id).subscribe({
+        next: ({ deliveryCode }) => void this.router.navigate(['/shipments', s.id], {
+          queryParams: { booked: 1 }, state: { deliveryCode, deliveryCodeShipmentId: s.id },
+        }),
+        error: () => void this.router.navigate(['/shipments', s.id], {
+          queryParams: { booked: 1 }, state: { deliveryCodeUnavailable: true, deliveryCodeShipmentId: s.id },
+        }),
+      }),
       error: (err) => {
         this.saving.set(false);
         this.error.set(describeError(err));

@@ -183,8 +183,11 @@ describe('DriverPage', () => {
       backend.expectNone('/api/v1/shipments/1/status');
 
       confirm.mockReturnValue(true);
+      vi.spyOn(window, 'prompt').mockReturnValue('1234');
       buttonNamed(fixture, 'Mark delivered').click();
-      backend.expectOne('/api/v1/shipments/1/status').flush(shipmentOf({ status: 'DELIVERED', ...MINE }));
+      const delivery = backend.expectOne('/api/v1/shipments/1/status');
+      expect(delivery.request.body.deliveryCode).toBe('1234');
+      delivery.flush(shipmentOf({ status: 'DELIVERED', ...MINE }));
       answer([], []);
       expect(await text()).toContain('delivered');
     });

@@ -32,6 +32,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -44,6 +45,8 @@ class ShipmentServiceTest {
     private static final AuthenticatedUser DRIVER = new AuthenticatedUser(10L, "driver@x.com", Role.DRIVER);
     private static final AuthenticatedUser OTHER_DRIVER = new AuthenticatedUser(11L, "d2@x.com", Role.DRIVER);
     private static final AuthenticatedUser ADMIN = new AuthenticatedUser(99L, "admin@x.com", Role.ADMIN);
+    private static final String DELIVERY_CODE = "1234";
+    private static final String DELIVERY_CODE_HASH = new BCryptPasswordEncoder().encode(DELIVERY_CODE);
 
     @Mock
     private ShipmentRepository shipments;
@@ -133,7 +136,7 @@ class ShipmentServiceTest {
     void deliveryPublishesEventForBilling() {
         Shipment s = stub(shipment(ShipmentStatus.IN_TRANSIT, 10L));
 
-        service.updateStatus(DRIVER, 42L, new UpdateStatusRequest(ShipmentStatus.DELIVERED, null, null));
+        service.updateStatus(DRIVER, 42L, new UpdateStatusRequest(ShipmentStatus.DELIVERED, null, null, DELIVERY_CODE));
 
         verify(events).publishEvent(new ShipmentDeliveredEvent(42L));
         assertThat(s.getDeliveredAt()).isEqualTo(Instant.parse("2026-11-04T09:30:00Z"));
@@ -260,6 +263,7 @@ class ShipmentServiceTest {
                 new BigDecimal("2.5"), null);
         ReflectionTestUtils.setField(s, "id", 42L);
         ReflectionTestUtils.setField(s, "status", status);
+        ReflectionTestUtils.setField(s, "deliveryCodeHash", DELIVERY_CODE_HASH);
         ReflectionTestUtils.setField(s, "createdAt", Instant.parse("2026-11-04T09:00:00Z"));
         if (driverId != null) {
             s.assignDriver(driverId, "Bilal", "+92 311 7654321", null);

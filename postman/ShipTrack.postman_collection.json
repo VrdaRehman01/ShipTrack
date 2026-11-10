@@ -576,6 +576,46 @@
           }
         },
         {
+          "name": "Customer issues receiver delivery code",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const c = pm.response.json();",
+                  "pm.test('four digit code', () => pm.expect(c.deliveryCode).to.match(/^\\d{4}$/));",
+                  "pm.collectionVariables.set('deliveryCode', c.deliveryCode);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/shipments/{{shipmentId}}/delivery-code",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{customerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          }
+        },
+        {
           "name": "Customer lists own shipments",
           "event": [
             {
@@ -1071,7 +1111,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"status\": \"DELIVERED\"\n}"
+              "raw": "{\n  \"status\": \"DELIVERED\",\n  \"deliveryCode\": \"{{deliveryCode}}\"\n}"
             }
           }
         },

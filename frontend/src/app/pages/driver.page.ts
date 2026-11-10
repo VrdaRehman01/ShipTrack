@@ -199,8 +199,13 @@ export class DriverPage {
   protected advance(s: Shipment): void {
     const next = this.nextMove(s);
     if (next === 'DELIVERED' && !confirm('Mark this parcel as delivered? The customer will be billed.')) return;
+    const deliveryCode = next === 'DELIVERED' ? prompt('Enter the four-digit code given by the receiver:')?.trim() : undefined;
+    if (next === 'DELIVERED' && !/^\d{4}$/.test(deliveryCode ?? '')) {
+      this.say('Enter the four-digit code from the receiver to confirm delivery.', true);
+      return;
+    }
     this.busy.set(true);
-    this.api.moveShipment(s.id, next, s.version).subscribe({
+    this.api.moveShipment(s.id, next, s.version, undefined, deliveryCode).subscribe({
       next: () => this.finish(`${s.trackingCode}: ${STATUS_LABEL[next].toLowerCase()}.`),
       error: (err) => this.finish(describeError(err), true),
     });

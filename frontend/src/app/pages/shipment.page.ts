@@ -33,7 +33,7 @@ const LIVE_UPDATE_MS = 30_000;
 
     @if (shipment(); as s) {
       @if (booked()) {
-        <p class="notice">Booked. Share the tracking code with the receiver so they can follow it too.</p>
+        <p class="notice">Booked. Share the tracking code and the receiver code below with the receiver.</p>
       }
 
       <header class="head">
@@ -90,6 +90,23 @@ const LIVE_UPDATE_MS = 30_000;
               <button class="btn" type="submit" [disabled]="busy() || chosenDriver === null">{{ s.driverId ? 'Change driver' : 'Assign driver' }}</button>
             </form>
           }
+        </section>
+      }
+
+      @if (canIssueDeliveryCode()) {
+        <section class="panel proof" aria-label="Proof of delivery">
+          <h2>Proof of delivery</h2>
+          @if (deliveryCode()) {
+            <p class="code">Receiver's code: <strong>{{ deliveryCode() }}</strong></p>
+          } @else {
+            <p class="muted">Generate a four-digit code and share it privately with the receiver. The rider must enter it to confirm delivery.</p>
+          }
+          @if (deliveryCode()) {
+            <p class="muted small">Keep this code private. Replacing it invalidates the previous code.</p>
+          }
+          <button class="btn btn-quiet" [disabled]="busy()" (click)="issueDeliveryCode()">
+            {{ deliveryCode() ? 'Replace receiver code' : 'Generate receiver code' }}
+          </button>
         </section>
       }
 
@@ -167,6 +184,9 @@ const LIVE_UPDATE_MS = 30_000;
     .head h1 { margin: 0; }
     .act { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: flex-end; }
     .share { display: grid; gap: var(--s2); }
+    .proof { display: grid; gap: var(--s2); }
+    .proof h2, .proof p { margin: 0; }
+    .proof .code { font: 700 var(--step-3) var(--font-sign); letter-spacing: 0.08em; }
     .auto { display: flex; gap: var(--s2); align-items: center; font-size: var(--step--1); color: var(--ink-soft); }
     .auto input { width: 18px; height: 18px; }
     .assign { display: flex; gap: var(--s3); align-items: flex-end; flex-wrap: wrap; }
@@ -204,6 +224,7 @@ export class ShipmentPage {
   protected readonly messageIsError = signal(false);
   protected readonly busy = signal(false);
   protected readonly autoShare = signal(false);
+  protected readonly deliveryCode = signal<string | null>(null);
   protected chosenDriver: number | null = null;
   protected expectedDate = '';
   private autoTimer: ReturnType<typeof setInterval> | null = null;
@@ -229,6 +250,11 @@ export class ShipmentPage {
   });
   protected readonly showInvoice = computed(() =>
     this.shipment()?.status === 'DELIVERED' && (this.auth.role() === 'ADMIN' || this.isOwner()));
+  protected readonly canIssueDeliveryCode = computed(() => {
+    const s = this.shipment();
+    return this.auth.role() === 'CUSTOMER' && this.isOwner() && !!s
+      && s.status !== 'DELIVERED' && s.status !== 'CANCELLED';
+  });
 
   constructor() {
     // untracked: only a new id should reload, not the signals the HTTP call happens to read (logging out, say).
@@ -283,11 +309,38 @@ export class ShipmentPage {
     const s = this.shipment();
     if (!s) return;
     if (next === 'CANCELLED' && !confirm('Cancel this shipment? This can’t be undone.')) return;
-    this.run(this.api.moveShipment(s.id, next, s.version), (updated) => {
+    let deliveryCode: string | undefined;
+    if (next === 'DELIVERED') {
+      if (!confirm('Mark this parcel as delivered? The customer will be billed.')) return;
+      deliveryCode = prompt('Enter the four-digit code given by the receiver:')?.trim();
+      if (!/^\d{4}$/.test(deliveryCode ?? '')) {
+        this.say('Enter the four-digit code from the receiver to confirm delivery.', true);
+        return;
+      }
+    }
+    this.run(this.api.moveShipment(s.id, next, s.version, undefined, deliveryCode), (updated) => {
       this.shipment.set(updated);
       this.say(next === 'DELIVERED' ? 'Marked delivered. The invoice is on its way to the customer.' : `${STATUS_LABEL[next]}.`);
       this.refreshSideData(updated);
       if (!this.canShareLocation()) this.stopAutoShare();
+    });
+  }
+
+  protected issueDeliveryCode(): void {
+    const s = this.shipment();
+    if (!s || !this.canIssueDeliveryCode()) return;
+    if (this.deliveryCode() && !confirm('Replace the receiver code? The previous code will stop working.')) return;
+    this.busy.set(true);
+    this.api.issueDeliveryCode(s.id).subscribe({
+      next: ({ deliveryCode }) => {
+        this.busy.set(false);
+        this.deliveryCode.set(deliveryCode);
+        this.say('Receiver code is ready. Share it privately with the receiver.');
+      },
+      error: (err) => {
+        this.busy.set(false);
+        this.say(describeError(err), true);
+      },
     });
   }
 
@@ -358,6 +411,11 @@ export class ShipmentPage {
 
   private load(id: number): void {
     this.loadError.set(null);
+    const navigationState = window.history.state;
+    this.deliveryCode.set(Number(navigationState?.deliveryCodeShipmentId) === id ? navigationState.deliveryCode : null);
+    if (Number(navigationState?.deliveryCodeShipmentId) === id && navigationState?.deliveryCodeUnavailable) {
+      this.say('Shipment booked, but its receiver code could not be generated. Try Generate receiver code below.');
+    }
     forkJoin({ shipment: this.api.shipment(id), history: this.api.history(id) }).subscribe({
       next: ({ shipment, history }) => {
         this.shipment.set(shipment);

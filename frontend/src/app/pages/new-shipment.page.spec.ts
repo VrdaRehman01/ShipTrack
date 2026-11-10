@@ -37,7 +37,10 @@ describe('NewShipmentPage', () => {
     expect(call.request.body.weightKg).toBe(1);
     expect(call.request.headers.get('Idempotency-Key')).toBeTruthy();
     call.flush(shipmentOf({ id: 42 }));
-    expect(navigate).toHaveBeenCalledWith(['/shipments', 42], { queryParams: { booked: 1 } });
+    backend.expectOne('/api/v1/shipments/42/delivery-code').flush({ deliveryCode: '4821' });
+    expect(navigate).toHaveBeenCalledWith(['/shipments', 42], {
+      queryParams: { booked: 1 }, state: { deliveryCode: '4821', deliveryCodeShipmentId: 42 },
+    });
   });
 
   it('sends no description when it was left blank', async () => {
@@ -47,6 +50,7 @@ describe('NewShipmentPage', () => {
     const call = backend.expectOne('/api/v1/shipments');
     expect(call.request.body.description).toBeUndefined();
     call.flush(shipmentOf());
+    backend.expectOne('/api/v1/shipments/1/delivery-code').flush({ deliveryCode: '4821' });
   });
 
   it('retries with the same key, so a dropped connection cannot book twice', async () => {
@@ -64,6 +68,7 @@ describe('NewShipmentPage', () => {
     const second = backend.expectOne('/api/v1/shipments');
     expect(second.request.headers.get('Idempotency-Key')).toBe(key);
     second.flush(shipmentOf());
+    backend.expectOne('/api/v1/shipments/1/delivery-code').flush({ deliveryCode: '4821' });
   });
 
   it('uses a phone rule that fits the database column', async () => {
